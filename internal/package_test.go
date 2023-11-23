@@ -2,25 +2,22 @@ package internal
 
 import (
 	"fmt"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
 )
 
-func TestModule(t *testing.T) {
-	assert.Equal(t, "github.com/kcmvp/archunit", Module)
-}
-
-func TestRoot(t *testing.T) {
-	assert.Equal(t, "/Users/kcmvp/sandbox/archunit", Root)
-}
-
 func TestDirs(t *testing.T) {
-	exp := []string{"/Users/kcmvp/sandbox/archunit", "/Users/kcmvp/sandbox/archunit/internal",
-		"/Users/kcmvp/sandbox/archunit/sample/model", "/Users/kcmvp/sandbox/archunit/sample/views",
-		"/Users/kcmvp/sandbox/archunit/sample/service", "/Users/kcmvp/sandbox/archunit/sample/noimport",
-		"/Users/kcmvp/sandbox/archunit/sample/controller", "/Users/kcmvp/sandbox/archunit/sample/repository",
-		"/Users/kcmvp/sandbox/archunit/sample/noimport/service", "/Users/kcmvp/sandbox/archunit/sample/controller/module1"}
+	exp := []string{"", "internal", "sample/model", "sample/views", "sample/service",
+		"sample/noimport", "sample/controller", "sample/repository", "sample/service/ext",
+		"sample/service/ext/v1", "sample/service/ext/v2", "sample/noimport/service",
+		"sample/controller/module1", "sample/service/thridparty"}
+	exp = lo.Map(exp, func(item string, _ int) string {
+		return lo.If(len(item) == 0, Root).ElseF(func() string {
+			return fmt.Sprintf("%s/%s", Root, item)
+		})
+	})
 	assert.Equal(t, exp, Dirs())
 }
 
@@ -82,7 +79,27 @@ func TestGetPkgReferences(t *testing.T) {
 			},
 		},
 		{
-			name: "should throw error",
+			name:  "skips with sub folder",
+			pkgs:  []string{"sample/service/..."},
+			skips: []string{"sample/service/ext"},
+			want: []string{"github.com/kcmvp/archunit/sample/service",
+				"github.com/kcmvp/archunit/sample/repository",
+				"github.com/kcmvp/archunit/sample/noimport/service"},
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return err == nil
+			},
+		},
+		{
+			name:  "extended skips",
+			pkgs:  []string{"sample/service/..."},
+			skips: []string{"sample/service/ext/..."},
+			want:  []string{"github.com/kcmvp/archunit/sample/repository"},
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return err == nil
+			},
+		},
+		{
+			name: "test incorrect package name",
 			pkgs: []string{"sample/controller/...", "sample/controller1"},
 			want: []string{},
 			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {

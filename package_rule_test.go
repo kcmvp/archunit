@@ -27,10 +27,7 @@ func TestPackageRule_ShouldNotAccess(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pkg := &PackageRule{
-				selector: tt.selector,
-				skips:    tt.skips,
-			}
+			pkg := Packages(tt.selector...)
 			if err := pkg.ShouldNotAccess(tt.pkgs...); (err != nil) != tt.wantErr {
 				t.Errorf("ShouldNotAccess() error = %v, wantErr %v", err, tt.wantErr)
 			}

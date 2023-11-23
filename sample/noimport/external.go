@@ -1,4 +1,4 @@
 package noimport
 
-type dummy struct {
+type Dummy struct {
 }
