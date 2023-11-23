@@ -29,6 +29,7 @@ func TestGetPkgReferences(t *testing.T) {
 		name    string
 		pkgs    []string
 		want    []string
+		skips   []string
 		wantErr assert.ErrorAssertionFunc
 	}{
 		{
@@ -71,6 +72,16 @@ func TestGetPkgReferences(t *testing.T) {
 			},
 		},
 		{
+			name:  "with skips",
+			pkgs:  []string{"sample/controller/...", "sample/noimport/..."},
+			skips: []string{"sample/controller/module1"},
+			want: []string{"github.com/kcmvp/archunit/sample/views",
+				"github.com/kcmvp/archunit/sample/service"},
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return err == nil
+			},
+		},
+		{
 			name: "should throw error",
 			pkgs: []string{"sample/controller/...", "sample/controller1"},
 			want: []string{},
@@ -81,7 +92,7 @@ func TestGetPkgReferences(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := GetPkgReferences(tt.pkgs...)
+			got, err := GetPkgReferences(tt.pkgs, tt.skips...)
 			if !tt.wantErr(t, err, fmt.Sprintf("GetPkgReferences(%v)", tt.pkgs)) {
 				return
 			}

@@ -22,6 +22,8 @@ const (
 var Root, Module string
 var project string
 
+//type FilterFunc func(criteria string) bool
+
 func init() {
 	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}:{{.Path}}")
 	output, err := cmd.Output()
@@ -107,7 +109,7 @@ func ImportPaths() []string {
 //	return parseValues(v.([]interface{}), Imports), nil
 //}
 
-func GetPkgReferences(pkgs ...string) ([]string, error) {
+func GetPkgReferences(pkgs []string, skips ...string) ([]string, error) {
 	// validate
 	pkgs = lo.Map(pkgs, func(path string, index int) string {
 		return fmt.Sprintf("%s/%s", Module, path)
@@ -134,7 +136,9 @@ func GetPkgReferences(pkgs ...string) ([]string, error) {
 		qv := x.(string)
 		cv := filter.([]string)
 		return lo.ContainsBy(cv, func(item string) bool {
-			return lo.IfF(strings.HasSuffix(item, "/..."), func() bool {
+			return !lo.ContainsBy(skips, func(skip string) bool {
+				return qv == fmt.Sprintf("%s/%s", Module, skip)
+			}) && lo.IfF(strings.HasSuffix(item, "/..."), func() bool {
 				return strings.HasPrefix(qv, strings.TrimSuffix(item, "/..."))
 			}).ElseF(func() bool {
 				return item == qv
