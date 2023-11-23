@@ -1,4 +1,4 @@
-package thridparty
+package thirdparty
 
 import "github.com/kcmvp/archunit/sample/repository"
 

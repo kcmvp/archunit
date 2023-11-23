@@ -17,10 +17,10 @@ const (
 	ImportPath = "ImportPath"
 	Imports    = "Imports"
 	Dir        = "Dir"
+	PkgSuffix  = "/..."
 )
 
-var Root, Module string
-var project string
+var rootDir, module, layout string
 
 func init() {
 	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}:{{.Path}}")
@@ -29,9 +29,9 @@ func init() {
 		log.Fatal("Error executing go list command:", err)
 	}
 	item := strings.Split(strings.TrimSpace(string(output)), ":")
-	Root = item[0]
-	Module = item[1]
-	os.Chdir(Root)
+	rootDir = item[0]
+	module = item[1]
+	os.Chdir(rootDir)
 	cmd = exec.Command("go", "list", "-json", "./...")
 	output, err = cmd.Output()
 	if err != nil {
@@ -50,12 +50,31 @@ func init() {
 		}).Else(line))
 	}
 	buf.WriteString("]")
-	project = buf.String()
+	layout = buf.String()
 }
 
 type Package struct {
 	ImportPath string
 	Imports    []string
+}
+
+func (pkg Package) Match(patterns ...string) bool {
+	return lo.SomeBy(patterns, func(pattern string) bool {
+		return lo.IfF(strings.HasSuffix(pattern, PkgSuffix), func() bool {
+			return strings.HasPrefix(pkg.ImportPath, strings.TrimSuffix(pattern, PkgSuffix))
+		}).Else(pkg.ImportPath == pattern)
+	})
+}
+
+func (pkg Package) MatchByRef(patterns ...string) bool {
+	return lo.SomeBy(pkg.Imports, func(ref string) bool {
+		referencedPkg := Package{ImportPath: ref}
+		return referencedPkg.Match(patterns...)
+	})
+}
+
+func (pkg Package) Equal(p Package) bool {
+	return pkg.ImportPath == p.ImportPath
 }
 
 func parse(v []interface{}, key string) []string {
@@ -81,63 +100,27 @@ func parsePackage(value []interface{}) []Package {
 	})
 }
 
-func Dirs() []string {
-	jq := gojsonq.New().FromString(project)
-	v := jq.Select(Dir).Get()
-	return parse(v.([]interface{}), Dir)
+func Module() string {
+	return module
+}
+func Root() string {
+	return rootDir
 }
 
-func modulePkgName(names ...string) []string {
-	return lo.Map(names, func(item string, _ int) string {
-		return fmt.Sprintf("%s/%s", Module, item)
+func allPackages() []Package {
+	jq := gojsonq.New().FromString(layout)
+	v := jq.Select(ImportPath, Imports).Get()
+	return parsePackage(v.([]interface{}))
+}
+
+func GetPkgByName(pkgs []string) []Package {
+	return lo.Filter(allPackages(), func(pkg Package, _ int) bool {
+		return pkg.Match(pkgs...)
 	})
 }
 
-func GetReferences(pkgs []string, skips ...string) ([]string, error) {
-	packages, err := GetReferencesByPkg(pkgs, skips...)
-	if err != nil {
-		return []string{}, err
-	} else {
-		refs := lo.Flatten(lo.Map(packages, func(item Package, index int) []string {
-			return item.Imports
-		}))
-		slices.SortStableFunc(refs, func(a, b string) int {
-			return len(a) - len(b)
-		})
-		return lo.Uniq(refs), nil
-	}
-}
-
-func GetReferencesByPkg(pkgs []string, skips ...string) ([]Package, error) {
-	pkgs = modulePkgName(pkgs...)
-	skips = modulePkgName(skips...)
-	jq := gojsonq.New().FromString(project)
-	jq.Macro("msw", func(v, c interface{}) (bool, error) {
-		value := v.(string)
-		criteria := c.([]string)
-		// @todo skips ends with "/..."
-		return !lo.ContainsBy(skips, func(skip string) bool {
-			return lo.IfF(strings.HasSuffix(skip, "/..."), func() bool {
-				return strings.HasPrefix(value, strings.TrimSuffix(skip, "/..."))
-			}).Else(value == skip)
-		}) && lo.ContainsBy(criteria, func(item string) bool {
-			return lo.IfF(strings.HasSuffix(item, "/..."), func() bool {
-				return strings.HasPrefix(value, strings.TrimSuffix(item, "/..."))
-			}).Else(item == value)
-		}), nil
+func GetPkgByReference(refs []string) []Package {
+	return lo.Filter(allPackages(), func(pkg Package, _ int) bool {
+		return pkg.MatchByRef(refs...)
 	})
-	v := jq.Select(ImportPath, Imports).Where(ImportPath, "msw", pkgs).Get()
-	packages := parsePackage(v.([]interface{}))
-	eligible := append(lo.Map(packages, func(item Package, index int) string {
-		return item.ImportPath
-	}), skips...)
-	if notExists, ok := lo.Find(pkgs, func(pkg string) bool {
-		return !lo.ContainsBy(eligible, func(eli string) bool {
-			// @todo skip ends with "/..."
-			return strings.HasPrefix(eli, strings.TrimSuffix(pkg, "/..."))
-		})
-	}); ok {
-		return []Package{}, fmt.Errorf("can not find package %s", notExists)
-	}
-	return packages, nil
 }
