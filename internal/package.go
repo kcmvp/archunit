@@ -22,8 +22,6 @@ const (
 var Root, Module string
 var project string
 
-//type FilterFunc func(criteria string) bool
-
 func init() {
 	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}:{{.Path}}")
 	output, err := cmd.Output()
@@ -55,6 +53,11 @@ func init() {
 	project = buf.String()
 }
 
+type Package struct {
+	ImportPath string
+	Imports    []string
+}
+
 func parse(v []interface{}, key string) []string {
 	rt := lo.Map(v, func(item interface{}, index int) string {
 		return item.(map[string]interface{})[key].(string)
@@ -79,6 +82,19 @@ func parseValues(v []interface{}, key string) []string {
 	return lo.Uniq(rt)
 }
 
+func parsePackage(value []interface{}) []Package {
+	return lo.Map(value, func(item interface{}, index int) Package {
+		return Package{
+			ImportPath: item.(map[string]interface{})[ImportPath].(string),
+			Imports: lo.If(item.(map[string]interface{})[Imports] == nil, []string{}).ElseF(func() []string {
+				return lo.Map(item.(map[string]interface{})[Imports].([]interface{}), func(item interface{}, index int) string {
+					return item.(string)
+				})
+			}),
+		}
+	})
+}
+
 func Dirs() []string {
 	jq := gojsonq.New().FromString(project)
 	v := jq.Select(Dir).Get()
@@ -92,25 +108,22 @@ func ImportPaths() []string {
 
 }
 
-//func Packages() []string {
-//	jq := gojsonq.New().FromString(project)
-//	v := jq.Select(PkgName).Get()
-//	return parse(v.([]interface{}), PkgName)
-//}
+func GetReferences(pkgs []string, skips ...string) ([]string, error) {
+	packages, err := GetReferencesByPkg(pkgs, skips...)
+	if err != nil {
+		return []string{}, err
+	} else {
+		refs := lo.Flatten(lo.Map(packages, func(item Package, index int) []string {
+			return item.Imports
+		}))
+		slices.SortStableFunc(refs, func(a, b string) int {
+			return len(a) - len(b)
+		})
+		return lo.Uniq(refs), nil
+	}
+}
 
-//func GetPkgRefByPkgName(pkgs ...string) ([]string, error) {
-//	if pkg, ok := lo.Find(pkgs, func(pkg string) bool {
-//		return lo.Contains(Packages(), pkg)
-//	}); !ok {
-//		return []string{}, fmt.Errorf("can not find package: %s", pkg)
-//	}
-//	jq := gojsonq.New().FromString(project)
-//	v := jq.Select(PkgName, Imports).WhereIn(PkgName, pkgs).Get()
-//	return parseValues(v.([]interface{}), Imports), nil
-//}
-
-func GetPkgReferences(pkgs []string, skips ...string) ([]string, error) {
-	// validate
+func GetReferencesByPkg(pkgs []string, skips ...string) ([]Package, error) {
 	pkgs = lo.Map(pkgs, func(path string, index int) string {
 		return fmt.Sprintf("%s/%s", Module, path)
 	})
@@ -129,7 +142,7 @@ func GetPkgReferences(pkgs []string, skips ...string) ([]string, error) {
 		}
 		return rt
 	}); !ok {
-		return []string{}, fmt.Errorf("can not find package: %s", notFound)
+		return []Package{}, fmt.Errorf("can not find package: %s", notFound)
 	}
 	jq := gojsonq.New().FromString(project)
 	jq.Macro("msw", func(x, filter interface{}) (bool, error) {
@@ -146,5 +159,5 @@ func GetPkgReferences(pkgs []string, skips ...string) ([]string, error) {
 		}), nil
 	})
 	v := jq.Select(ImportPath, Imports).Where(ImportPath, "msw", pkgs).Get()
-	return parseValues(v.([]interface{}), Imports), nil
+	return parsePackage(v.([]interface{})), nil
 }

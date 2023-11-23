@@ -92,11 +92,11 @@ func TestGetPkgReferences(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := GetPkgReferences(tt.pkgs, tt.skips...)
-			if !tt.wantErr(t, err, fmt.Sprintf("GetPkgReferences(%v)", tt.pkgs)) {
+			got, err := GetReferences(tt.pkgs, tt.skips...)
+			if !tt.wantErr(t, err, fmt.Sprintf("GetReferences(%v)", tt.pkgs)) {
 				return
 			}
-			assert.Equalf(t, tt.want, got, "GetPkgReferences(%v)", tt.pkgs)
+			assert.Equalf(t, tt.want, got, "GetReferences(%v)", tt.pkgs)
 		})
 	}
 }
