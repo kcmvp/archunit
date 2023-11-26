@@ -68,8 +68,8 @@ func (pkg Package) Match(patterns ...string) bool {
 
 func (pkg Package) MatchByRef(patterns ...string) bool {
 	return lo.SomeBy(pkg.Imports, func(ref string) bool {
-		referencedPkg := Package{ImportPath: ref}
-		return referencedPkg.Match(patterns...)
+		refPkg := Package{ImportPath: ref}
+		return refPkg.Match(patterns...)
 	})
 }
 
