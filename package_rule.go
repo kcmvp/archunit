@@ -18,10 +18,6 @@ func Packages(criteria ...string) *PackageRule {
 	}
 }
 
-func AllPackages() *PackageRule {
-	return nil
-}
-
 func (pkgRule *PackageRule) Except(ignore ...string) *PackageRule {
 	pkgRule.ignore = modularize(ignore...)
 	return pkgRule
@@ -29,41 +25,47 @@ func (pkgRule *PackageRule) Except(ignore ...string) *PackageRule {
 
 func modularize(names ...string) []string {
 	return lo.Map(names, func(item string, _ int) string {
+		item = strings.TrimSuffix(item, "/")
 		return lo.If(strings.HasPrefix(item, internal.Module()), item).ElseF(func() string {
 			return fmt.Sprintf("%s/%s", internal.Module(), item)
 		})
 	})
 }
 
-func (pkgRule *PackageRule) validate() error {
-	failed, ok := lo.Find(pkgRule.criteria, func(item string) bool {
-		return strings.HasSuffix(item, "/")
+func (pkgRule *PackageRule) packages() []internal.Package {
+	pkgs := internal.GetPkgByName(pkgRule.criteria)
+	return lo.Filter(pkgs, func(pkg internal.Package, _ int) bool {
+		return !pkg.Match(pkgRule.ignore...)
 	})
-	return lo.IfF(ok, func() error {
-		return fmt.Errorf("package name should not end with '/' %s", failed)
-	}).Else(nil)
+}
+
+func (pkgRule *PackageRule) references() []internal.Package {
+	pkgs := internal.GetPkgByReference(pkgRule.criteria)
+	return lo.Filter(pkgs, func(pkg internal.Package, _ int) bool {
+		return !pkg.Match(pkgRule.ignore...)
+	})
 }
 
 func (pkgRule *PackageRule) ShouldNotAccess(restricted ...string) error {
-	if err := pkgRule.validate(); err != nil {
-		return err
-	}
-	pkgs := lo.Filter(internal.GetPkgByName(pkgRule.criteria), func(pkg internal.Package, _ int) bool {
-		return !pkg.Match(pkgRule.ignore...)
-	})
-	restricted = lo.Map(restricted, func(item string, _ int) string {
-		return fmt.Sprintf("%s/%s", internal.Module(), item)
-	})
-	failedPkgs := lo.Filter(pkgs, func(pkg internal.Package, _ int) bool {
+	restricted = modularize(restricted...)
+	failedPkgs := lo.Filter(pkgRule.packages(), func(pkg internal.Package, _ int) bool {
 		return pkg.MatchByRef(restricted...)
 	})
-	return lo.IfF(len(failedPkgs) != 0, func() error {
-		return fmt.Errorf("package %s access restricted packages %v", lo.Map(failedPkgs, func(item internal.Package, _ int) string {
-			return item.ImportPath
+	return lo.IfF(len(failedPkgs) > 0, func() error {
+		return fmt.Errorf("package %s access restricted packages %v", lo.Map(failedPkgs, func(pkg internal.Package, _ int) string {
+			return pkg.ImportPath
 		}), restricted)
 	}).Else(nil)
 }
 
 func (pkgRule *PackageRule) ShouldOnlyBeAccessedBy(limitedPkgs ...string) error {
-	return nil
+	limitedPkgs = modularize(limitedPkgs...)
+	failedPkgs := lo.Filter(pkgRule.references(), func(pkg internal.Package, _ int) bool {
+		return !pkg.Match(limitedPkgs...)
+	})
+	return lo.IfF(len(failedPkgs) > 0, func() error {
+		return fmt.Errorf("package %s is accessed by %s", pkgRule.criteria, lo.Map(failedPkgs, func(pkg internal.Package, _ int) string {
+			return pkg.ImportPath
+		}))
+	}).Else(nil)
 }
