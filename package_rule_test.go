@@ -1,6 +1,10 @@
 package archunit
 
 import (
+	"fmt"
+	"github.com/kcmvp/archunit/internal"
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
@@ -97,6 +101,89 @@ func TestPackageRule_ShouldOnlyBeAccessedBy(t *testing.T) {
 			if err := pkgRule.ShouldOnlyBeAccessedBy(tt.limitedPkgs...); (err != nil) != tt.wantErr {
 				t.Errorf("ShouldOnlyBeAccessedBy() error = %v, wantErr %v", err, tt.wantErr)
 			}
+		})
+	}
+}
+
+func TestPackageRule_AllPackages(t *testing.T) {
+	pkgs := lo.Map(AllPackages().packages(), func(pkg internal.Package, _ int) string {
+		return pkg.ImportPath
+	})
+	assert.Equal(t, len(pkgs), 15)
+}
+
+func TestPackageRule_NameShouldBe(t *testing.T) {
+
+	tests := []struct {
+		name     string
+		criteria []string
+		ignore   []string
+		c        Case
+		wantErr  assert.ErrorAssertionFunc
+	}{
+		{
+			name:     "package should be lowercase",
+			criteria: []string{"sample/model"},
+			c:        LowerCase,
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return false
+			},
+		},
+		{
+			name: "all packages should be lowercase",
+			c:    LowerCase,
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return true
+			},
+		},
+		{
+			name:   "all packages should be lowercase with ignore",
+			c:      LowerCase,
+			ignore: []string{"sample/Upper"},
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return false
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pkgRule := AllPackages().Except(tt.ignore...)
+			tt.wantErr(t, pkgRule.NameShouldBe(tt.c), fmt.Sprintf("NameShouldBe(%v)", tt.c))
+		})
+	}
+}
+
+func TestPackageRule_NameShouldBeAsFolder(t *testing.T) {
+
+	tests := []struct {
+		name     string
+		criteria []string
+		ignore   []string
+		wantErr  assert.ErrorAssertionFunc
+	}{
+		{
+			name:     "all package should be named as folder",
+			criteria: []string{"sample/..."},
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return true
+			},
+		},
+		{
+			name:     "all package should be named as folder with ignore",
+			criteria: []string{"sample/..."},
+			ignore:   []string{"sample/Upper"},
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return false
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pkgRule := &PackageRule{
+				criteria: tt.criteria,
+				ignore:   tt.ignore,
+			}
+			tt.wantErr(t, pkgRule.NameShouldBeSameAsFolder(), fmt.Sprintf("NameShouldBeSameAsFolder()"))
 		})
 	}
 }

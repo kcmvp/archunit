@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	Name       = "Name"
 	ImportPath = "ImportPath"
 	Imports    = "Imports"
 	Dir        = "Dir"
@@ -54,6 +55,7 @@ func init() {
 }
 
 type Package struct {
+	Name       string
 	ImportPath string
 	Imports    []string
 }
@@ -90,6 +92,7 @@ func parse(v []interface{}, key string) []string {
 func parsePackage(value []interface{}) []Package {
 	return lo.Map(value, func(item interface{}, index int) Package {
 		return Package{
+			Name:       item.(map[string]interface{})[Name].(string),
 			ImportPath: item.(map[string]interface{})[ImportPath].(string),
 			Imports: lo.If(item.(map[string]interface{})[Imports] == nil, []string{}).ElseF(func() []string {
 				return lo.Map(item.(map[string]interface{})[Imports].([]interface{}), func(item interface{}, index int) string {
@@ -107,20 +110,20 @@ func Root() string {
 	return rootDir
 }
 
-func allPackages() []Package {
+func AllPackages() []Package {
 	jq := gojsonq.New().FromString(layout)
-	v := jq.Select(ImportPath, Imports).Get()
+	v := jq.Select(Name, ImportPath, Imports).Get()
 	return parsePackage(v.([]interface{}))
 }
 
 func GetPkgByName(pkgs []string) []Package {
-	return lo.Filter(allPackages(), func(pkg Package, _ int) bool {
+	return lo.Filter(AllPackages(), func(pkg Package, _ int) bool {
 		return pkg.Match(pkgs...)
 	})
 }
 
 func GetPkgByReference(refs []string) []Package {
-	return lo.Filter(allPackages(), func(pkg Package, _ int) bool {
+	return lo.Filter(AllPackages(), func(pkg Package, _ int) bool {
 		return pkg.MatchByRef(refs...)
 	})
 }
