@@ -1,28 +1,34 @@
 package archunit
 
+import (
+	"strings"
+)
+
+type Case int
+
+const (
+	LowerCase = iota
+	UpperCase
+)
+
 type NameRule interface {
-	NameShouldContain(partChecker PartChecker, part string) error
-	NameCaseShouldBe(caseChecker CaseChecker) error
-}
-type PartChecker func(a, b string) error
-
-type CaseChecker func(a string) error
-
-func HasPrefix(name, prefix string) error {
-	return nil
-}
-func HasSuffix(name, suffix string) error {
-	return nil
+	NameShould(check NameValidator, part string) error
+	NameShouldBe(c Case) error
 }
 
-func Contains(name, part string) error {
-	return nil
+type NameValidator func(a, b string) bool
+
+func HavePrefix(name, prefix string) bool {
+	return strings.HasPrefix(name, prefix)
 }
 
-func UpperCase(a string) error {
-	return nil
+func HaveSuffix(name, suffix string) bool {
+	return strings.HasSuffix(name, suffix)
 }
 
-func LowerCase(a string) error {
-	return nil
+func Contain(name, part string) bool {
+	return strings.Contains(name, part)
+}
+func NotContain(name, part string) bool {
+	return !strings.Contains(name, part)
 }
