@@ -12,3 +12,12 @@ This project is inspired by the java version [ArchUnit](https://www.archunit.org
 - Package dependency checking
 - Package, folder and file naming checking
 - Project layer checking
+
+## Todo
+- All const should be defined in a file in a package
+- All file with extension should be in the folder
+- platform specific code naming 
+
+## Method
+- limit the accessibility of methods of struct 
+- limit the accessibility of methods of package
