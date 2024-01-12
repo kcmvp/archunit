@@ -8,182 +8,254 @@ import (
 	"testing"
 )
 
-func TestPackageRule_ShouldNotAccess(t *testing.T) {
+func TestAllPackages(t *testing.T) {
+	pkgs := AllPackages().packages()
+	assert.Equal(t, 12, len(pkgs))
+	err := AllPackages().NameShouldBeSameAsFolder()
+	assert.NotNil(t, err)
+}
+
+func TestPkgPattern(t *testing.T) {
+	tests := []struct {
+		name  string
+		regex string
+		path  string
+		match bool
+	}{
+		{
+			name:  "positive: exact match",
+			regex: "controller",
+			path:  "controller/module1",
+			match: true,
+		},
+		{
+			name:  "negative: exact match",
+			regex: "controller/module1",
+			path:  "controller",
+			match: false,
+		},
+		{
+			name:  "positive: exact match",
+			regex: "ext/v1",
+			path:  "service/ext/v1",
+			match: true,
+		},
+		{
+			name:  "positive: regx1",
+			regex: "service/../v1",
+			path:  "service/ext/v1",
+			match: true,
+		},
+		{
+			name:  "positive: regx2",
+			regex: "a/../b",
+			path:  "a/g/d/b/",
+			match: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reg := pkgPattern(test.regex)
+			assert.True(t, test.match == reg.MatchString(normalizePath(test.path)))
+		})
+	}
+}
+
+func TestPackageSelect(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern []string
+		ignores []string
+		pkgs    []string
+	}{
+		{
+			name:    "test1",
+			pattern: []string{"controller"},
+			pkgs: []string{"github.com/kcmvp/archunit/sample/controller",
+				"github.com/kcmvp/archunit/sample/controller/module1"},
+		},
+		{
+			name:    "test1.1",
+			pattern: []string{"controller/.."},
+			pkgs:    []string{"github.com/kcmvp/archunit/sample/controller/module1"},
+		},
+		{
+			name:    "test1.1 with ignores",
+			pattern: []string{"controller"},
+			ignores: []string{"module1"},
+			pkgs:    []string{"github.com/kcmvp/archunit/sample/controller"},
+		},
+		{
+			name:    "test2",
+			pattern: []string{"service"},
+			pkgs: []string{"github.com/kcmvp/archunit/sample/service",
+				"github.com/kcmvp/archunit/sample/service/ext",
+				"github.com/kcmvp/archunit/sample/service/ext/v1",
+				"github.com/kcmvp/archunit/sample/service/ext/v2",
+				"github.com/kcmvp/archunit/sample/service/thirdparty"},
+		},
+		{
+			name:    "test3",
+			pattern: []string{"service/ext"},
+			pkgs: []string{"github.com/kcmvp/archunit/sample/service/ext",
+				"github.com/kcmvp/archunit/sample/service/ext/v1",
+				"github.com/kcmvp/archunit/sample/service/ext/v2",
+			},
+		},
+		{
+			name:    "test4",
+			pattern: []string{"../service"},
+			pkgs: []string{"github.com/kcmvp/archunit/sample/service",
+				"github.com/kcmvp/archunit/sample/service/ext",
+				"github.com/kcmvp/archunit/sample/service/ext/v1",
+				"github.com/kcmvp/archunit/sample/service/ext/v2",
+				"github.com/kcmvp/archunit/sample/service/thirdparty"},
+		},
+		{
+			name:    "ignore-case2",
+			pattern: []string{"sample/controller"},
+			ignores: []string{"controller/module1"},
+			pkgs:    []string{"github.com/kcmvp/archunit/sample/controller"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rule := Packages(test.pattern...)
+			if len(test.ignores) > 0 {
+				rule.Except(test.ignores...)
+			}
+			actual := lo.Map(rule.packages(), func(item internal.Package, _ int) string {
+				return item.ImportPath()
+			})
+			assert.Equal(t, test.pkgs, actual)
+		})
+	}
+}
+
+func TestImports(t *testing.T) {
 	tests := []struct {
 		name    string
 		pkgs    []string
-		skips   []string
-		refs    []string
-		wantErr bool
+		ignores []string
+		imports []string
 	}{
 		{
-			name:    "failed with check",
-			pkgs:    []string{"sample/controller/..."},
-			refs:    []string{"sample/repository"},
-			wantErr: true,
+			name: "without ignore",
+			pkgs: []string{"controller"},
+			imports: []string{"github.com/kcmvp/archunit/sample/service",
+				"github.com/kcmvp/archunit/sample/views",
+				"github.com/kcmvp/archunit/sample/repository",
+				"github.com/kcmvp/archunit/sample/service/ext/v1"},
 		},
 		{
-			name:    "pass-normal",
-			pkgs:    []string{"sample/service"},
-			refs:    []string{"sample/noimport"},
-			wantErr: false,
-		},
-		{
-			name:    "failed extend",
-			pkgs:    []string{"sample/service/..."},
-			refs:    []string{"sample/noimport"},
-			wantErr: true,
-		},
-		{
-			name:    "extend with skip",
-			pkgs:    []string{"sample/service/..."},
-			refs:    []string{"sample/noimport"},
-			skips:   []string{"sample/service/ext"},
-			wantErr: false,
-		},
-		{
-			name:    "extended pgk and extended refers",
-			pkgs:    []string{"sample/service/..."},
-			refs:    []string{"sample/noimport/..."},
-			skips:   []string{"sample/service/ext"},
-			wantErr: true,
-		},
-		{
-			name:    "extended pgk and extended refers extended ignore",
-			pkgs:    []string{"sample/service/..."},
-			refs:    []string{"sample/noimport/..."},
-			skips:   []string{"sample/service/ext/..."},
-			wantErr: false,
-		},
-		{
-			name:    "extend with extended skip",
-			pkgs:    []string{"sample/service/..."},
-			refs:    []string{"sample/noimport"},
-			skips:   []string{"sample/service/ext/..."},
-			wantErr: false,
+			name:    "with ignore",
+			pkgs:    []string{"sample/controller"},
+			ignores: []string{"controller/module1"},
+			imports: []string{"github.com/kcmvp/archunit/sample/service",
+				"github.com/kcmvp/archunit/sample/views"},
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pkg := Packages(tt.pkgs...).Except(tt.skips...)
-			err := pkg.ShouldNotAccess(tt.refs...)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ShouldNotAccess() error = %v, wantErr %v", err, tt.wantErr)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pkg := Packages(test.pkgs...)
+			if len(test.ignores) > 0 {
+				pkg = pkg.Except(test.ignores...)
+			}
+			imports := pkg.Imports()
+			assert.Equal(t, test.imports, imports)
+		})
+	}
+}
+
+func TestShouldNotRefer(t *testing.T) {
+	tests := []struct {
+		name           string
+		pkgs           []string
+		ignores        []string
+		shouldNotRefer []string
+		wantErr        bool
+	}{
+		{
+			name:           "control should not refer repository",
+			pkgs:           []string{"sample/controller"},
+			shouldNotRefer: []string{"sample/repository"},
+			wantErr:        true,
+		},
+		{
+			name:           "control should not access repository with ignore",
+			pkgs:           []string{"sample/controller"},
+			ignores:        []string{"controller/module1"},
+			shouldNotRefer: []string{"sample/repository"},
+			wantErr:        false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pkg := Packages(test.pkgs...)
+			if len(test.ignores) > 0 {
+				pkg.Except(test.ignores...)
+			}
+			err := pkg.ShouldNotRefer(test.shouldNotRefer...)
+			assert.True(t, test.wantErr == (err != nil))
+			if err != nil {
+				fmt.Printf("msg : %s \n", err.Error())
 			}
 		})
 	}
 }
 
-func TestPackageRule_ShouldOnlyBeAccessedBy(t *testing.T) {
+func TestPackageRule_ShouldBeOnlyReferredBy(t *testing.T) {
 	tests := []struct {
-		name        string
-		criteria    []string
-		ignore      []string
-		limitedPkgs []string
-		wantErr     bool
+		name                   string
+		pkgs                   []string
+		ignores                []string
+		shouldBeOnlyReferredBy []string
+		wantErr                bool
 	}{
 		{
-			name:        "mode should be only accessed by service",
-			criteria:    []string{"sample/model"},
-			limitedPkgs: []string{"sample/service"},
-			wantErr:     true,
+			name:                   "repository should be only referred by service",
+			pkgs:                   []string{"sample/repository"},
+			shouldBeOnlyReferredBy: []string{"sample/service"},
+			wantErr:                true,
 		},
 		{
-			name:        "mode should be only accessed by repository",
-			criteria:    []string{"sample/model"},
-			limitedPkgs: []string{"sample/repository"},
-			wantErr:     false,
+			name:                   "repository should be only referred by storage",
+			pkgs:                   []string{"sample/repository"},
+			shouldBeOnlyReferredBy: []string{"sample/storage"},
+			wantErr:                true,
+		},
+		{
+			name:                   "repository should be only referred by controller storage",
+			pkgs:                   []string{"sample/repository"},
+			shouldBeOnlyReferredBy: []string{"sample/storage", "controller", "service"},
+			wantErr:                false,
+		},
+		{
+			name:                   "repository should be only referred by service with ignore",
+			pkgs:                   []string{"sample/service"},
+			shouldBeOnlyReferredBy: []string{"sample/controller"},
+			wantErr:                true,
+		},
+		{
+			name:                   "repository should be only referred service but can reference each other",
+			pkgs:                   []string{"sample/service"},
+			ignores:                []string{"sample/service"},
+			shouldBeOnlyReferredBy: []string{"sample/controller"},
+			wantErr:                false,
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pkgRule := Packages(tt.criteria...).Except(tt.ignore...)
-			if err := pkgRule.ShouldOnlyBeAccessedBy(tt.limitedPkgs...); (err != nil) != tt.wantErr {
-				t.Errorf("ShouldOnlyBeAccessedBy() error = %v, wantErr %v", err, tt.wantErr)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pkg := Packages(test.pkgs...)
+			if len(test.ignores) > 0 {
+				pkg.Except(test.ignores...)
 			}
-		})
-	}
-}
-
-func TestPackageRule_AllPackages(t *testing.T) {
-	pkgs := lo.Map(AllPackages().packages(), func(pkg internal.Package, _ int) string {
-		return pkg.ImportPath
-	})
-	assert.Equal(t, len(pkgs), 15)
-}
-
-func TestPackageRule_NameShouldBe(t *testing.T) {
-
-	tests := []struct {
-		name     string
-		criteria []string
-		ignore   []string
-		c        Case
-		wantErr  assert.ErrorAssertionFunc
-	}{
-		{
-			name:     "package should be lowercase",
-			criteria: []string{"sample/model"},
-			c:        LowerCase,
-			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
-				return false
-			},
-		},
-		{
-			name: "all packages should be lowercase",
-			c:    LowerCase,
-			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
-				return true
-			},
-		},
-		{
-			name:   "all packages should be lowercase with ignore",
-			c:      LowerCase,
-			ignore: []string{"sample/Upper"},
-			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
-				return false
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pkgRule := AllPackages().Except(tt.ignore...)
-			tt.wantErr(t, pkgRule.NameShouldBe(tt.c), fmt.Sprintf("NameShouldBe(%v)", tt.c))
-		})
-	}
-}
-
-func TestPackageRule_NameShouldBeAsFolder(t *testing.T) {
-
-	tests := []struct {
-		name     string
-		criteria []string
-		ignore   []string
-		wantErr  assert.ErrorAssertionFunc
-	}{
-		{
-			name:     "all package should be named as folder",
-			criteria: []string{"sample/..."},
-			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
-				return true
-			},
-		},
-		{
-			name:     "all package should be named as folder with ignore",
-			criteria: []string{"sample/..."},
-			ignore:   []string{"sample/Upper"},
-			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
-				return false
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pkgRule := &PackageRule{
-				criteria: tt.criteria,
-				ignore:   tt.ignore,
+			err := pkg.ShouldBeOnlyReferredBy(test.shouldBeOnlyReferredBy...)
+			assert.True(t, test.wantErr == (err != nil))
+			if err != nil {
+				fmt.Printf("msg : %s \n", err.Error())
 			}
-			tt.wantErr(t, pkgRule.NameShouldBeSameAsFolder(), fmt.Sprintf("NameShouldBeSameAsFolder()"))
 		})
 	}
 }

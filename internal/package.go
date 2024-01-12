@@ -5,23 +5,36 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/samber/lo"
-	"github.com/thedevsaddam/gojsonq/v2"
+	"github.com/tidwall/gjson"
 	"log"
 	"os"
 	"os/exec"
-	"slices"
 	"strings"
 )
 
 const (
-	Name       = "Name"
-	ImportPath = "ImportPath"
-	Imports    = "Imports"
-	Dir        = "Dir"
-	PkgSuffix  = "/..."
+	Name        = "Name"
+	ImportPath  = "ImportPath"
+	Imports     = "Imports"
+	Dir         = "Dir"
+	GoFiles     = "GoFiles"
+	TestGoFiles = "TestGoFiles"
+	TestImports = ""
 )
 
-var rootDir, module, layout string
+var root, module string
+
+var allPkgs []Package
+
+type Package struct {
+	name        string
+	importPath  string
+	dir         string
+	sources     []*File
+	imports     []string
+	testSources []*File
+	testImports []string
+}
 
 func init() {
 	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}:{{.Path}}")
@@ -30,9 +43,9 @@ func init() {
 		log.Fatal("Error executing go list command:", err)
 	}
 	item := strings.Split(strings.TrimSpace(string(output)), ":")
-	rootDir = item[0]
+	root = item[0]
 	module = item[1]
-	os.Chdir(rootDir)
+	os.Chdir(root) //nolint
 	cmd = exec.Command("go", "list", "-json", "./...")
 	output, err = cmd.Output()
 	if err != nil {
@@ -51,79 +64,51 @@ func init() {
 		}).Else(line))
 	}
 	buf.WriteString("]")
-	layout = buf.String()
-}
-
-type Package struct {
-	Name       string
-	ImportPath string
-	Imports    []string
-}
-
-func (pkg Package) Match(patterns ...string) bool {
-	return lo.SomeBy(patterns, func(pattern string) bool {
-		return lo.IfF(strings.HasSuffix(pattern, PkgSuffix), func() bool {
-			return strings.HasPrefix(pkg.ImportPath, strings.TrimSuffix(pattern, PkgSuffix))
-		}).Else(pkg.ImportPath == pattern)
-	})
-}
-
-func (pkg Package) MatchByRef(patterns ...string) bool {
-	return lo.SomeBy(pkg.Imports, func(ref string) bool {
-		refPkg := Package{ImportPath: ref}
-		return refPkg.Match(patterns...)
+	gjson.Parse(buf.String()).ForEach(func(key, value gjson.Result) bool {
+		allPkgs = append(allPkgs, Package{
+			name:       value.Get(Name).Str,
+			dir:        value.Get(Dir).Str,
+			importPath: value.Get(ImportPath).Str,
+			sources: lo.Map(value.Get(GoFiles).Array(), func(item gjson.Result, _ int) *File {
+				return NewSource(item.Str)
+			}),
+			imports: lo.Map(value.Get(Imports).Array(), func(item gjson.Result, _ int) string {
+				return item.Str
+			}),
+			testSources: lo.Map(value.Get(TestGoFiles).Array(), func(item gjson.Result, _ int) *File {
+				return NewSource(item.Str)
+			}),
+			testImports: lo.Map(value.Get(TestImports).Array(), func(item gjson.Result, _ int) string {
+				return item.Str
+			}),
+		})
+		return true
 	})
 }
 
 func (pkg Package) Equal(p Package) bool {
-	return pkg.ImportPath == p.ImportPath
-}
-
-func parse(v []interface{}, key string) []string {
-	rt := lo.Map(v, func(item interface{}, index int) string {
-		return item.(map[string]interface{})[key].(string)
-	})
-	slices.SortStableFunc(rt, func(a, b string) int {
-		return len(a) - len(b)
-	})
-	return lo.Uniq(rt)
-}
-
-func parsePackage(value []interface{}) []Package {
-	return lo.Map(value, func(item interface{}, index int) Package {
-		return Package{
-			Name:       item.(map[string]interface{})[Name].(string),
-			ImportPath: item.(map[string]interface{})[ImportPath].(string),
-			Imports: lo.If(item.(map[string]interface{})[Imports] == nil, []string{}).ElseF(func() []string {
-				return lo.Map(item.(map[string]interface{})[Imports].([]interface{}), func(item interface{}, index int) string {
-					return item.(string)
-				})
-			}),
-		}
-	})
+	return pkg.importPath == p.importPath
 }
 
 func Module() string {
 	return module
 }
 func Root() string {
-	return rootDir
+	return root
+}
+
+func (pkg Package) Name() string {
+	return pkg.name
+}
+
+func (pkg Package) ImportPath() string {
+	return pkg.importPath
+}
+
+func (pkg Package) Imports() []string {
+	return pkg.imports
 }
 
 func AllPackages() []Package {
-	jq := gojsonq.New().FromString(layout)
-	v := jq.Select(Name, ImportPath, Imports).Get()
-	return parsePackage(v.([]interface{}))
-}
-
-func GetPkgByName(pkgs []string) []Package {
-	return lo.Filter(AllPackages(), func(pkg Package, _ int) bool {
-		return pkg.Match(pkgs...)
-	})
-}
-
-func GetPkgByReference(refs []string) []Package {
-	return lo.Filter(AllPackages(), func(pkg Package, _ int) bool {
-		return pkg.MatchByRef(refs...)
-	})
+	return allPkgs
 }

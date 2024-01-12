@@ -1,3 +1,4 @@
 .idea
 *.sql
 *.json
+target

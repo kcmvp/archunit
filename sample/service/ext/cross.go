@@ -1,7 +1,7 @@
 package ext
 
-import "github.com/kcmvp/archunit/sample/noimport"
+import v1 "github.com/kcmvp/archunit/sample/service/ext/v1"
 
 type Cross struct {
-	noimport.Dummy
+	v1.LoginService
 }

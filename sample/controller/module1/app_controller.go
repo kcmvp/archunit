@@ -1,9 +1,13 @@
 package module1
 
-import "github.com/kcmvp/archunit/sample/repository"
+import (
+	"github.com/kcmvp/archunit/sample/repository"
+	v1 "github.com/kcmvp/archunit/sample/service/ext/v1"
+)
 
 type AppController struct {
-	repo repository.UserRepository
+	v1.LoginService
+	repository.UserRepository
 }
 
 func (a *AppController) name() {

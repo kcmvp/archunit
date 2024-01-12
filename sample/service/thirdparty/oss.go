@@ -1,4 +1,4 @@
-package thirdparty
+package storage
 
 import "github.com/kcmvp/archunit/sample/repository"
 
