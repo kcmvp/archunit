@@ -27,5 +27,4 @@ func TestAllPkgs(t *testing.T) {
 		return item.ImportPath()
 	}))
 	assert.Equal(t, Module(), "github.com/kcmvp/archunit")
-	assert.Equal(t, Root(), "/Users/kcmvp/sandbox/archunit")
 }
