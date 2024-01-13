@@ -27,6 +27,7 @@ jobs:
       - name: setup gob
         run: |
           echo "PATH=$GOPATH:$PATH" >> $GITHUB_ENV
+          echo $PATH
 
       - name: Test with gob
         run: gob test
