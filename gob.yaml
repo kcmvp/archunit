@@ -1,0 +1,16 @@
+exec:
+    commit-msg-hook: ^#[0-9]+:\s*.{10,}$
+    pre-commit-hook:
+        - lint
+        - test
+    pre-push-hook:
+        - test
+plugins:
+    golangci-lint:
+        alias: lint
+        args: run ./...
+        url: github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55.2
+    gotestsum:
+        alias: test
+        args: --format testname -- -coverprofile=target/cover.out ./...
+        url: gotest.tools/gotestsum@v1.11.0
