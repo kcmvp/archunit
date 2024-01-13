@@ -21,19 +21,15 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.21.4'
-      - name: show environment
-        run: echo "${GOPATH}"
       - name: setup gob
         run: go install github.com/kcmvp/gob@latest
 
+      - name: setup gob
+        run: |
+          echo "PATH=$GOPATH:$PATH" >> $GITHUB_ENV
+
       - name: Test with gob
         run: gob test
-
-      - name: Build
-        run: go build -v ./...
-
-      - name: Test
-        run: go test -v ./...
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
