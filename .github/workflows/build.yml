@@ -30,7 +30,9 @@ jobs:
           gob plugin list
 
       - name: Test with gob
-        run: gob test
+        run: |
+          list -alh $GOPATH/bin
+          gob test
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
