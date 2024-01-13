@@ -12,6 +12,8 @@ on:
 jobs:
 
   build:
+    env:
+      GOPATH: /home/runner/work/gopath
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
