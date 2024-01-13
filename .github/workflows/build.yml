@@ -24,6 +24,11 @@ jobs:
       - name: setup gob
         run: go install github.com/kcmvp/gob@latest
 
+      - name: show variable
+        run: echo "$PATH"
+      - name: show gopath
+        run: echo "$GOPATH"
+
       - name: Test with gob
         run: gob test
 
