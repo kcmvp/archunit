@@ -13,23 +13,18 @@ jobs:
 
   build:
     env:
-      GOPATH: /home/runner/work/gopath
+      GOPATH: "${GITHUB_WORSPACE}"/gopath
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21.4'
-
+      - name: show environment
+        run: echo "${GOPATH}"
       - name: setup gob
         run: go install github.com/kcmvp/gob@latest
-
-      - name: show variable
-        run: echo "$PATH"
-      - name: show gopath
-        run: echo "$GOPATH"
 
       - name: Test with gob
         run: gob test
