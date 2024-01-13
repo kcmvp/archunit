@@ -31,8 +31,7 @@ jobs:
 
       - name: Test with gob
         run: |
-          list -alh $GOPATH/bin
-          gob test
+          ls -alth $GOPATH/bin
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
