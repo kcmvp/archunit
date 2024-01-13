@@ -13,7 +13,7 @@ jobs:
 
   build:
     env:
-      GOPATH: $GITHUB_WORSPACE/gopath
+      GOPATH: "$GITHUB_WORSPACE/gopath"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
