@@ -24,7 +24,7 @@ jobs:
       - name: setup gob
         run: |
           echo $PATH
-          echo "PATH=$GOPATH:$PATH" >> $GITHUB_ENV
+          echo "PATH=$GOPATH/bin:$PATH" >> $GITHUB_ENV
           echo $PATH
           go install github.com/kcmvp/gob@latest
           gob plugin list
@@ -32,6 +32,7 @@ jobs:
       - name: Test with gob
         run: |
           ls -alth $GOPATH/bin
+          gob test
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
