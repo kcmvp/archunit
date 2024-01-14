@@ -27,7 +27,7 @@ jobs:
         run: go install github.com/kcmvp/gob@latest
         
       - name: Test with gob
-        run: gob plugin list
+        run: gob test
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
