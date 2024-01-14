@@ -13,7 +13,7 @@ jobs:
 
   build:
     env:
-     GOPATH: ${{ runner.temp }}/gopath
+     GOPATH: ${RUNNER_TEMP}/gopath
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
