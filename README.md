@@ -22,26 +22,34 @@
 
 ## What is ArchUnit
 ArchUnit is a simple and flexible extensible library for checking the architecture of Golang project.
-with it, you can make your project's architecture visible, testable and stable by setting a set of predefined architectural rules
+with it, you can make your project's architecture visible, testable and stable by setting a set of predefined architectural rules.
+
+
+This project is inspired by the java version [ArchUnit](https://www.archunit.org/)
 
 ## Why architecture test matters?
+Architecture tests are important in software development for several reasons:
 
-## Features
-This project is inspired by the java version [ArchUnit](https://www.archunit.org/)
-- Project Layout checking
-- Package references checking
-- Package dependency checking
-- Package, folder and file naming checking
-- Project layer checking
+1. **Maintaining architectural integrity**: Architecture tests help ensure that the intended architectural design and principles are followed throughout the development process. They help prevent architectural decay and ensure that the system remains consistent and maintainable over time.
 
-## Todo
-- All const should be defined in a file in a package
-- All file with extension should be in the folder
-- platform specific code naming 
+2. **Detecting architectural violations**: Architecture tests can identify violations of architectural rules and constraints. They help catch issues such as circular dependencies, improper layering, or violations of design patterns. By detecting these violations early, developers can address them before they become more difficult and costly to fix.
 
-## Method
-- limit the accessibility of methods of struct 
-- limit the accessibility of methods of package
-- [AST](https://github.com/mwiater/golangpeekr)
-- [AST SQL](https://github.com/fzerorubigd/goql)
-- [Go AST](https://github.com/topics/ast?l=go)
+3. **Enforcing best practices**: Architecture tests can enforce best practices and coding standards. They can check for adherence to coding conventions, naming conventions, and other guidelines specific to the architectural style or framework being used. This helps maintain a consistent codebase and improves code quality.
+
+4. **Supporting refactoring and evolution**: Architecture tests provide confidence when refactoring or making changes to the system. They act as a safety net, ensuring that the intended architectural structure is not compromised during the refactoring process. This allows developers to make changes with more confidence, knowing that they won't introduce unintended side effects.
+
+5. **Facilitating collaboration**: Architecture tests serve as a form of documentation that communicates the intended architectural design to the development team. They provide a shared understanding of the system's structure and help facilitate collaboration among team members. Developers can refer to the tests to understand the architectural decisions and constraints in place.
+
+## Features & Functionalities
+### Features
+- Easy to use, it can be used any other popular go test frameworks.
+- **NRTW(No Reinventing The Wheel)**. Using builtin golang toolchain at most.
+- Great performance
+- Great documentation
+### Functionalities
+- [ ] Package checks
+   -[x] Dependency checks
+   -[ ] Naming checks
+- [ ] Project Layout checks
+- [ ] Method checks
+
