@@ -1,4 +1,25 @@
 # Architecture Test Framework For Go Project
+<p align="center">
+  <br/>
+  <br/>
+  <a href="https://github.com/cmvp/archunit/blob/main/LICENSE">
+    <img alt="GitHub" src="https://img.shields.io/github/license/kcmvp/archunit"/>
+  </a>
+  <a href="https://goreportcard.com/report/github.com/kcmvp/archunit">
+    <img src="https://goreportcard.com/badge/github.com/kcmvp/archunit"/>
+  </a>
+  <a href="https://pkg.go.dev/github.com/kcmvp/archunit">
+    <img src="https://pkg.go.dev/badge/github.com/kcmvp/archunit.svg" alt="Go Reference"/>
+  </a>
+  <a href="https://github.com/kcmvp/archunit/blob/main/.github/workflows/build.yml" rel="nofollow">
+     <img src="https://img.shields.io/github/actions/workflow/status/kcmvp/archunit/build.yml?branch=main" alt="Build" />
+  </a>
+  <a href="https://app.codecov.io/gh/kcmvp/archunit" ref="nofollow">
+    <img src ="https://img.shields.io/codecov/c/github/kcmvp/archunit" alt="coverage"/>
+  </a>
+
+</p>
+
 ## What is ArchUnit
 ArchUnit is a simple and flexible extensible library for checking the architecture of Golang project.
 with it, you can make your project's architecture visible, testable and stable by setting a set of predefined architectural rules
