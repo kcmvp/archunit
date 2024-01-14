@@ -45,7 +45,7 @@ Architecture tests are important in software development for several reasons:
 ## How to Use
 - Import the library
  ```go
-go go get github.com/kcmvp/archunit
+ go get github.com/kcmvp/archunit
 ``` 
 - Write a simple test
  ```go
