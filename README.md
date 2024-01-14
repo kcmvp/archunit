@@ -57,7 +57,14 @@ func TestAllPackages(t *testing.T) {
     assert.NotNil(t, err)
 }
 ```
-## [Package Checks](./package.md)
+## Principles apply to all checks
+- All the checks return an error when it fails, nil error stands for success
+- The **error** contains detail information about the failure
+- Two steps to define a check
+  - Define the criteria of the objects to be checking
+  - Apply rules
+
+### [Package Checks](./package.md)
 
 ### Roadmap
 
