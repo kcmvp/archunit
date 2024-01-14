@@ -47,9 +47,10 @@ Architecture tests are important in software development for several reasons:
 - Great performance
 - Great documentation
 ### Functionalities
+
 - [ ] Package checks
-   -[x] Dependency checks
-   -[ ] Naming checks
+   - [x] Dependency checks
+   - [ ] Naming checks
 - [ ] Project Layout checks
 - [ ] Method checks
 
