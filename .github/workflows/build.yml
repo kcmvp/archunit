@@ -13,7 +13,7 @@ jobs:
 
   build:
     env:
-     GOPATH: ${{ github.workspace }}/gopath
+     GOPATH:  /home/runner/work/gopath
     runs-on: ubuntu-latest
     steps:
       - name: Set up workspace
