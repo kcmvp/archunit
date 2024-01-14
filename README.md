@@ -25,8 +25,9 @@ ArchUnit is a simple and flexible extensible library for checking the architectu
 with it, you can make your project's architecture visible, testable and stable by setting a set of predefined architectural rules.
 
 ## Features
-- This project is inspired by the java version [ArchUnit](https://www.archunit.org/), it has been proven best practice in Java
-- Easy to use, it can be used any other popular go test frameworks.
+
+- This project is inspired by the java version [ArchUnit](https://www.archunit.org/), which has been proven best practice in Java
+- Fully tested and easy to use, it can be used any other popular go test frameworks.
 - **NRTW(No Reinventing The Wheel)**. Using builtin golang toolchain at most.
 
 ## Why architecture test matters?
