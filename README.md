@@ -58,7 +58,7 @@ func TestAllPackages(t *testing.T) {
   - Define the criteria of the objects to be checking
   - Apply rules
 
-## All Checks(click to get detail)
+## All Checks
 ### [Package checks](./package.md)
 
 ### Roadmap
