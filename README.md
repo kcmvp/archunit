@@ -24,8 +24,10 @@
 ArchUnit is a simple and flexible extensible library for checking the architecture of Golang project.
 with it, you can make your project's architecture visible, testable and stable by setting a set of predefined architectural rules.
 
-
-This project is inspired by the java version [ArchUnit](https://www.archunit.org/)
+## Features
+- This project is inspired by the java version [ArchUnit](https://www.archunit.org/), it has been proven best practice in Java
+- Easy to use, it can be used any other popular go test frameworks.
+- **NRTW(No Reinventing The Wheel)**. Using builtin golang toolchain at most.
 
 ## Why architecture test matters?
 Architecture tests are important in software development for several reasons:
@@ -40,14 +42,24 @@ Architecture tests are important in software development for several reasons:
 
 5. **Facilitating collaboration**: Architecture tests serve as a form of documentation that communicates the intended architectural design to the development team. They provide a shared understanding of the system's structure and help facilitate collaboration among team members. Developers can refer to the tests to understand the architectural decisions and constraints in place.
 
-## Features & Functionalities
-### Features
-- Easy to use, it can be used any other popular go test frameworks.
-- **NRTW(No Reinventing The Wheel)**. Using builtin golang toolchain at most.
-- Great performance
-- [Great documentation](https://github.com/kcmvp/archunit/wiki)
+## How to Use
+- Import the library
+ ```go
+go go get github.com/kcmvp/archunit
+``` 
+- Write a simple test
+ ```go
+func TestAllPackages(t *testing.T) {
+    pkgs := AllPackages().packages()
+    assert.Equal(t, 12, len(pkgs))
+    err := AllPackages().NameShouldBeSameAsFolder()
+    assert.NotNil(t, err)
+}
+```
+ 
+- For detail usage, please refer [detail documentation](https://github.com/kcmvp/archunit/wiki)
 
-### Functionalities
+### Roadmap
 
 - [ ] Package checks
    - [x] Dependency checks
