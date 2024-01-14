@@ -2,7 +2,7 @@
 <p align="center">
   <br/>
   <br/>
-  <a href="https://github.com/cmvp/archunit/blob/main/LICENSE">
+  <a href="https://github.com/kcmvp/archunit/blob/main/LICENSE">
     <img alt="GitHub" src="https://img.shields.io/github/license/kcmvp/archunit"/>
   </a>
   <a href="https://goreportcard.com/report/github.com/kcmvp/archunit">
