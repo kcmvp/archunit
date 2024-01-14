@@ -13,10 +13,12 @@ jobs:
 
   build:
     env:
-     GOPATH: ${RUNNER_TEMP}/gopath
+     GOPATH: ${{ github.workspace }}/gopath
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Set up workspace
+        working-directory: ./app
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
