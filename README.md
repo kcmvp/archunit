@@ -28,7 +28,7 @@ with it, you can make your project's architecture visible, testable and stable b
 
 - This project is inspired by the java version [ArchUnit](https://www.archunit.org/), which has been proven best practice in Java
 - Fully tested and easy to use, it can be used any other popular go test frameworks.
-- **NRTW(No Reinventing The Wheel)**. Using builtin golang toolchain at most.
+- **NRTW(No Reinventing The Wheel)**. Keep using builtin golang toolchain at most.
 
 ## Why architecture test matters?
 Architecture tests are important in software development for several reasons:
