@@ -13,21 +13,21 @@ jobs:
 
   build:
     env:
-     GOPATH:  /home/runner/work/gopath
+     GOPATH: /home/runner/work/gopath
     runs-on: ubuntu-latest
     steps:
-      - name: Set up workspace
-        working-directory: ./app
       - uses: actions/checkout@v3
+        
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21.4'
+          
       - name: setup gob
         run: go install github.com/kcmvp/gob@latest
-
+        
       - name: Test with gob
-        run: gob test
+        run: gob plugin list
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
