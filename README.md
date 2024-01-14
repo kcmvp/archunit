@@ -45,7 +45,8 @@ Architecture tests are important in software development for several reasons:
 - Easy to use, it can be used any other popular go test frameworks.
 - **NRTW(No Reinventing The Wheel)**. Using builtin golang toolchain at most.
 - Great performance
-- Great documentation
+- [Great documentation](https://github.com/kcmvp/archunit/wiki)
+
 ### Functionalities
 
 - [ ] Package checks
