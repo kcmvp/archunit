@@ -57,8 +57,7 @@ func TestAllPackages(t *testing.T) {
     assert.NotNil(t, err)
 }
 ```
- 
-- For detail usage, please refer [detail documentation](https://github.com/kcmvp/archunit/wiki)
+## [Package Checks](./package.md)
 
 ### Roadmap
 
