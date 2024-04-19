@@ -112,3 +112,7 @@ func (pkg Package) Imports() []string {
 func AllPackages() []Package {
 	return allPkgs
 }
+
+func ProjectPkg(pkgName string) bool {
+	return strings.Contains(pkgName, module)
+}

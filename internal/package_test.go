@@ -10,16 +10,16 @@ func TestAllPkgs(t *testing.T) {
 	exp := []string{
 		"github.com/kcmvp/archunit",
 		"github.com/kcmvp/archunit/internal",
-		"github.com/kcmvp/archunit/sample/controller",
-		"github.com/kcmvp/archunit/sample/controller/module1",
-		"github.com/kcmvp/archunit/sample/model",
-		"github.com/kcmvp/archunit/sample/repository",
-		"github.com/kcmvp/archunit/sample/service",
-		"github.com/kcmvp/archunit/sample/service/ext",
-		"github.com/kcmvp/archunit/sample/service/ext/v1",
-		"github.com/kcmvp/archunit/sample/service/ext/v2",
-		"github.com/kcmvp/archunit/sample/service/thirdparty",
-		"github.com/kcmvp/archunit/sample/views",
+		"github.com/kcmvp/archunit/internal/sample/controller",
+		"github.com/kcmvp/archunit/internal/sample/controller/module1",
+		"github.com/kcmvp/archunit/internal/sample/model",
+		"github.com/kcmvp/archunit/internal/sample/repository",
+		"github.com/kcmvp/archunit/internal/sample/service",
+		"github.com/kcmvp/archunit/internal/sample/service/ext",
+		"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
+		"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
+		"github.com/kcmvp/archunit/internal/sample/service/thirdparty",
+		"github.com/kcmvp/archunit/internal/sample/views",
 	}
 	pkgs := AllPackages()
 	assert.Equal(t, 12, len(pkgs))

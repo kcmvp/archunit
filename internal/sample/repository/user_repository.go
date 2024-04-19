@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"github.com/kcmvp/archunit/sample/model"
+	"github.com/kcmvp/archunit/internal/sample/model"
 )
 
 type UserRepository struct {

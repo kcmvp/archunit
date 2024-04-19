@@ -1,8 +1,8 @@
 package controller
 
 import (
-	"github.com/kcmvp/archunit/sample/service"
-	"github.com/kcmvp/archunit/sample/views"
+	"github.com/kcmvp/archunit/internal/sample/service"
+	"github.com/kcmvp/archunit/internal/sample/views"
 )
 
 type LoginController struct {

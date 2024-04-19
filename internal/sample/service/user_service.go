@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/kcmvp/archunit/sample/repository"
+	"github.com/kcmvp/archunit/internal/sample/repository"
 )
 
 type UserService struct {

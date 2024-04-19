@@ -10,12 +10,12 @@ import (
 
 const allPkgs = ".."
 
-var _ NameRule = (*PackageRule)(nil)
-
 type PackageRule struct {
 	criteria []*regexp.Regexp
 	ignores  []*regexp.Regexp
 }
+
+type PkgNameCheck func(name, path string) bool
 
 func AllPackages() *PackageRule {
 	return Packages(allPkgs)
@@ -55,7 +55,7 @@ func pkgPattern(exp string) *regexp.Regexp {
 
 func (pkgRule *PackageRule) packages() []internal.Package {
 	return lo.Filter(internal.AllPackages(), func(pkg internal.Package, _ int) bool {
-		return pkgRule.Match(normalizePath(pkg.ImportPath()))
+		return pkgRule.match(normalizePath(pkg.ImportPath()))
 	})
 }
 
@@ -67,8 +67,8 @@ func (pkgRule *PackageRule) Imports() []string {
 	return lo.Uniq(imports)
 }
 
-func (pkgRule *PackageRule) ShouldNotRefer(restricted ...string) error {
-	patterns := lo.Map(restricted, func(exp string, _ int) *regexp.Regexp {
+func (pkgRule *PackageRule) ShouldNotRefer(pkgs ...string) error {
+	patterns := lo.Map(pkgs, func(exp string, _ int) *regexp.Regexp {
 		return pkgPattern(exp)
 	})
 	for _, pkg := range pkgRule.packages() {
@@ -82,8 +82,23 @@ func (pkgRule *PackageRule) ShouldNotRefer(restricted ...string) error {
 	}
 	return nil
 }
+func (pkgRule *PackageRule) ShouldOnlyRefer(pkgs ...string) error {
+	patterns := lo.Map(pkgs, func(exp string, _ int) *regexp.Regexp {
+		return pkgPattern(exp)
+	})
+	for _, pkg := range pkgRule.packages() {
+		for _, imported := range pkg.Imports() {
+			if !internal.ProjectPkg(imported) && !lo.SomeBy(patterns, func(regex *regexp.Regexp) bool {
+				return regex.MatchString(normalizePath(imported))
+			}) {
+				return fmt.Errorf("%s refers %s", pkg.ImportPath(), imported)
+			}
+		}
+	}
+	return nil
+}
 
-func (pkgRule *PackageRule) Match(importPath string) bool {
+func (pkgRule *PackageRule) match(importPath string) bool {
 	return lo.SomeBy(pkgRule.criteria, func(reg *regexp.Regexp) bool {
 		return reg.MatchString(importPath)
 	}) && lo.NoneBy(pkgRule.ignores, func(reg *regexp.Regexp) bool {
@@ -95,43 +110,34 @@ func (pkgRule *PackageRule) ShouldBeOnlyReferredBy(limitedPkgs ...string) error 
 	limitedRule := Packages(limitedPkgs...)
 	for _, pkg := range internal.AllPackages() {
 		if lo.SomeBy(pkg.Imports(), func(path string) bool {
-			return pkgRule.Match(normalizePath(path))
-		}) && !limitedRule.Match(normalizePath(pkg.ImportPath())) {
+			return pkgRule.match(normalizePath(path))
+		}) && !limitedRule.match(normalizePath(pkg.ImportPath())) {
 			return fmt.Errorf("package %s break the rules", pkg.ImportPath())
 		}
 	}
 	return nil
 }
 
-func (pkgRule *PackageRule) NameShouldBeSameAsFolder() error {
+func (pkgRule *PackageRule) PkgNameShouldBe(nameCheck PkgNameCheck) error {
 	failed := lo.Filter(pkgRule.packages(), func(pkg internal.Package, _ int) bool {
-		return !strings.HasSuffix(pkg.ImportPath(), pkg.Name())
+		return !nameCheck(pkg.Name(), pkg.ImportPath())
 	})
-	return lo.IfF(len(failed) > 0, func() error {
-		return fmt.Errorf("packages : %v are not the same as folder", lo.Map(failed, func(item internal.Package, _ int) string {
+	if len(failed) > 0 {
+		return fmt.Errorf("%v break the rule", lo.Map(failed, func(item internal.Package, _ int) string {
 			return item.ImportPath()
 		}))
-	}).Else(nil)
+	}
+	return nil
 }
 
-func (pkgRule *PackageRule) NameShould(validate NameValidator, part string) error {
-	failed := lo.Filter(pkgRule.packages(), func(item internal.Package, _ int) bool {
-		return !validate(item.ImportPath(), part)
-	})
-	return lo.IfF(len(failed) > 0, func() error {
-		return fmt.Errorf("%v failed with naming standard", failed)
-	}).Else(nil)
+var SameAsFolder PkgNameCheck = func(name, path string) bool {
+	return strings.HasSuffix(path, name)
 }
 
-func (pkgRule *PackageRule) NameShouldBe(c Case) error {
-	failed := lo.Filter(pkgRule.packages(), func(item internal.Package, _ int) bool {
-		return lo.IfF(c == LowerCase, func() bool {
-			return item.ImportPath() != strings.ToLower(item.ImportPath())
-		}).ElseF(func() bool {
-			return item.ImportPath() != strings.ToUpper(item.ImportPath())
-		})
-	})
-	return lo.IfF(len(failed) > 0, func() error {
-		return fmt.Errorf("%v failed with naming standard", failed)
-	}).Else(nil)
+var InLowerCase PkgNameCheck = func(name, _ string) bool {
+	return name == strings.ToLower(name)
+}
+
+var InUpperCase PkgNameCheck = func(name, _ string) bool {
+	return name == strings.ToUpper(name)
 }
