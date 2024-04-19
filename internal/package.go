@@ -22,9 +22,10 @@ const (
 	TestImports = ""
 )
 
-var root, module string
-
-var allPkgs []Package
+var (
+	root, module string
+	allPkgs      []Package
+)
 
 type Package struct {
 	name        string
@@ -111,4 +112,8 @@ func (pkg Package) Imports() []string {
 
 func AllPackages() []Package {
 	return allPkgs
+}
+
+func ProjectPkg(pkgName string) bool {
+	return strings.HasPrefix(pkgName, module)
 }

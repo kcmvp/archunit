@@ -17,17 +17,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-        
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21.4'
-          
+
       - name: setup gob
-        run: go install github.com/kcmvp/gob@latest
-        
+        run: go install github.com/kcmvp/gob/cmd/gbc@latest
+
       - name: Test with gob
-        run: gob test
+        run: gbc test
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3

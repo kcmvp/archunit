@@ -1,12 +1,16 @@
-## [Package Checks](https://github.com/kcmvp/archunit/blob/main/package_rule_test.go)
+## Package Checks
+1. All the tests can be found [here](https://github.com/kcmvp/archunit/blob/main/package_rule_test.go)
 
-### [Selection](https://github.com/kcmvp/archunit/blob/main/package_rule_test.go#L64)
+### [Package Selection](https://github.com/kcmvp/archunit/blob/main/package_rule_test.go#L64)
 1. package import path to notation a package
 2. packages are selected by regular expression
 3. '..' stands for any **single** path
 
-### Rules
-- ShouldNotRefer
+### Package Rules
+- ShouldBeOnlyReferredB
 - ShouldBeOnlyReferredBy
-- NameShouldBeSameAsFolder
-- NameShould
+- PkgNameShouldBe
+  - SameAsFolder
+  - InLowerCase
+  - InUpperCase
+- PkgFolderShould

@@ -10,9 +10,11 @@ import (
 
 func TestAllPackages(t *testing.T) {
 	pkgs := AllPackages().packages()
-	assert.Equal(t, 12, len(pkgs))
-	err := AllPackages().NameShouldBeSameAsFolder()
+	assert.Equal(t, 13, len(pkgs))
+	err := AllPackages().NameShouldSameAsFolder()
 	assert.NotNil(t, err)
+	err = AllPackages().NameShouldBeLowerCase()
+	assert.NoError(t, err)
 }
 
 func TestPkgPattern(t *testing.T) {
@@ -71,51 +73,51 @@ func TestPackageSelect(t *testing.T) {
 		{
 			name:    "test1",
 			pattern: []string{"controller"},
-			pkgs: []string{"github.com/kcmvp/archunit/sample/controller",
-				"github.com/kcmvp/archunit/sample/controller/module1"},
+			pkgs: []string{"github.com/kcmvp/archunit/internal/sample/controller",
+				"github.com/kcmvp/archunit/internal/sample/controller/module1"},
 		},
 		{
 			name:    "test1.1",
 			pattern: []string{"controller/.."},
-			pkgs:    []string{"github.com/kcmvp/archunit/sample/controller/module1"},
+			pkgs:    []string{"github.com/kcmvp/archunit/internal/sample/controller/module1"},
 		},
 		{
 			name:    "test1.1 with ignores",
 			pattern: []string{"controller"},
 			ignores: []string{"module1"},
-			pkgs:    []string{"github.com/kcmvp/archunit/sample/controller"},
+			pkgs:    []string{"github.com/kcmvp/archunit/internal/sample/controller"},
 		},
 		{
 			name:    "test2",
 			pattern: []string{"service"},
-			pkgs: []string{"github.com/kcmvp/archunit/sample/service",
-				"github.com/kcmvp/archunit/sample/service/ext",
-				"github.com/kcmvp/archunit/sample/service/ext/v1",
-				"github.com/kcmvp/archunit/sample/service/ext/v2",
-				"github.com/kcmvp/archunit/sample/service/thirdparty"},
+			pkgs: []string{"github.com/kcmvp/archunit/internal/sample/service",
+				"github.com/kcmvp/archunit/internal/sample/service/ext",
+				"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
+				"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
+				"github.com/kcmvp/archunit/internal/sample/service/thirdparty"},
 		},
 		{
 			name:    "test3",
 			pattern: []string{"service/ext"},
-			pkgs: []string{"github.com/kcmvp/archunit/sample/service/ext",
-				"github.com/kcmvp/archunit/sample/service/ext/v1",
-				"github.com/kcmvp/archunit/sample/service/ext/v2",
+			pkgs: []string{"github.com/kcmvp/archunit/internal/sample/service/ext",
+				"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
+				"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
 			},
 		},
 		{
 			name:    "test4",
 			pattern: []string{"../service"},
-			pkgs: []string{"github.com/kcmvp/archunit/sample/service",
-				"github.com/kcmvp/archunit/sample/service/ext",
-				"github.com/kcmvp/archunit/sample/service/ext/v1",
-				"github.com/kcmvp/archunit/sample/service/ext/v2",
-				"github.com/kcmvp/archunit/sample/service/thirdparty"},
+			pkgs: []string{"github.com/kcmvp/archunit/internal/sample/service",
+				"github.com/kcmvp/archunit/internal/sample/service/ext",
+				"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
+				"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
+				"github.com/kcmvp/archunit/internal/sample/service/thirdparty"},
 		},
 		{
 			name:    "ignore-case2",
 			pattern: []string{"sample/controller"},
 			ignores: []string{"controller/module1"},
-			pkgs:    []string{"github.com/kcmvp/archunit/sample/controller"},
+			pkgs:    []string{"github.com/kcmvp/archunit/internal/sample/controller"},
 		},
 	}
 
@@ -143,17 +145,17 @@ func TestImports(t *testing.T) {
 		{
 			name: "without ignore",
 			pkgs: []string{"controller"},
-			imports: []string{"github.com/kcmvp/archunit/sample/service",
-				"github.com/kcmvp/archunit/sample/views",
-				"github.com/kcmvp/archunit/sample/repository",
-				"github.com/kcmvp/archunit/sample/service/ext/v1"},
+			imports: []string{"github.com/kcmvp/archunit/internal/sample/service",
+				"github.com/kcmvp/archunit/internal/sample/views",
+				"github.com/kcmvp/archunit/internal/sample/repository",
+				"github.com/kcmvp/archunit/internal/sample/service/ext/v1"},
 		},
 		{
 			name:    "with ignore",
 			pkgs:    []string{"sample/controller"},
 			ignores: []string{"controller/module1"},
-			imports: []string{"github.com/kcmvp/archunit/sample/service",
-				"github.com/kcmvp/archunit/sample/views"},
+			imports: []string{"github.com/kcmvp/archunit/internal/sample/service",
+				"github.com/kcmvp/archunit/internal/sample/views"},
 		},
 	}
 	for _, test := range tests {
@@ -258,4 +260,8 @@ func TestPackageRule_ShouldBeOnlyReferredBy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPackageRule_ShouldOnlyRefer(t *testing.T) {
+	assert.NoError(t, Packages("internal/sample/views").ShouldOnlyRefer("vutil"))
 }
