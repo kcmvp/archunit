@@ -10,10 +10,10 @@ import (
 
 func TestAllPackages(t *testing.T) {
 	pkgs := AllPackages().packages()
-	assert.Equal(t, 12, len(pkgs))
-	err := AllPackages().PkgNameShouldBe(SameAsFolder)
+	assert.Equal(t, 13, len(pkgs))
+	err := AllPackages().NameShouldSameAsFolder()
 	assert.NotNil(t, err)
-	err = AllPackages().PkgNameShouldBe(InLowerCase)
+	err = AllPackages().NameShouldBeLowerCase()
 	assert.NoError(t, err)
 }
 
@@ -260,4 +260,8 @@ func TestPackageRule_ShouldBeOnlyReferredBy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPackageRule_ShouldOnlyRefer(t *testing.T) {
+	assert.NoError(t, Packages("internal/sample/views").ShouldOnlyRefer("vutil"))
 }

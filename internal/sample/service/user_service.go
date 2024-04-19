@@ -7,11 +7,3 @@ import (
 type UserService struct {
 	userRepository repository.UserRepository
 }
-
-func (receiver UserService) Login() {
-
-}
-
-func (receiver UserService) OathLogin() {
-
-}

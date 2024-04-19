@@ -20,9 +20,9 @@ func TestAllPkgs(t *testing.T) {
 		"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
 		"github.com/kcmvp/archunit/internal/sample/service/thirdparty",
 		"github.com/kcmvp/archunit/internal/sample/views",
+		"github.com/kcmvp/archunit/internal/sample/vutil",
 	}
 	pkgs := AllPackages()
-	assert.Equal(t, 12, len(pkgs))
 	assert.Equal(t, exp, lo.Map(pkgs, func(item Package, _ int) string {
 		return item.ImportPath()
 	}))

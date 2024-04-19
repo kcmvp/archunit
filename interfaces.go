@@ -1,3 +1,0 @@
-package archunit
-
-// package, naming
