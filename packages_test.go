@@ -9,11 +9,11 @@ import (
 )
 
 func TestAllPackages(t *testing.T) {
-	pkgs := AllPackages().packages()
+	pkgs := AllPackages()
 	assert.Equal(t, 13, len(pkgs))
-	err := AllPackages().NameShouldSameAsFolder()
+	err := pkgs.NameShouldSameAsFolder()
 	assert.NotNil(t, err)
-	err = AllPackages().NameShouldBeLowerCase()
+	err = pkgs.NameShouldBeLowerCase()
 	assert.NoError(t, err)
 }
 
@@ -28,7 +28,7 @@ func TestPkgPattern(t *testing.T) {
 			name:  "positive: exact match",
 			regex: "controller",
 			path:  "controller/module1",
-			match: true,
+			match: false,
 		},
 		{
 			name:  "negative: exact match",
@@ -45,20 +45,26 @@ func TestPkgPattern(t *testing.T) {
 		{
 			name:  "positive: regx1",
 			regex: "service/../v1",
-			path:  "service/ext/v1",
+			path:  "/service/ext/v1",
 			match: true,
 		},
 		{
 			name:  "positive: regx2",
 			regex: "a/../b",
-			path:  "a/g/d/b/",
+			path:  "/a/g/d/b",
+			match: true,
+		},
+		{
+			name:  "positive: regx3",
+			regex: "a/..",
+			path:  "/a/g/d/b",
 			match: true,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			reg := pkgPattern(test.regex)
-			assert.True(t, test.match == reg.MatchString(normalizePath(test.path)))
+			reg := packagePattern(test.regex)
+			assert.True(t, test.match == reg.MatchString(test.path))
 		})
 	}
 }
@@ -123,11 +129,11 @@ func TestPackageSelect(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rule := Packages(test.pattern...)
+			packages := PackageBy(test.pattern...)
 			if len(test.ignores) > 0 {
-				rule.Except(test.ignores...)
+				packages = packages.Except(test.ignores...)
 			}
-			actual := lo.Map(rule.packages(), func(item internal.Package, _ int) string {
+			actual := lo.Map(packages, func(item internal.Package, _ int) string {
 				return item.ImportPath()
 			})
 			assert.Equal(t, test.pkgs, actual)
@@ -160,7 +166,7 @@ func TestImports(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			pkg := Packages(test.pkgs...)
+			pkg := PackageBy(test.pkgs...)
 			if len(test.ignores) > 0 {
 				pkg = pkg.Except(test.ignores...)
 			}
@@ -186,7 +192,7 @@ func TestShouldNotRefer(t *testing.T) {
 		},
 		{
 			name:           "control should not access repository with ignore",
-			pkgs:           []string{"sample/controller"},
+			pkgs:           []string{"sample/controller/.."},
 			ignores:        []string{"controller/module1"},
 			shouldNotRefer: []string{"sample/repository"},
 			wantErr:        false,
@@ -194,9 +200,9 @@ func TestShouldNotRefer(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			pkg := Packages(test.pkgs...)
+			pkg := PackageBy(test.pkgs...)
 			if len(test.ignores) > 0 {
-				pkg.Except(test.ignores...)
+				pkg = pkg.Except(test.ignores...)
 			}
 			err := pkg.ShouldNotRefer(test.shouldNotRefer...)
 			assert.True(t, test.wantErr == (err != nil))
@@ -249,9 +255,9 @@ func TestPackageRule_ShouldBeOnlyReferredBy(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			pkg := Packages(test.pkgs...)
+			pkg := PackageBy(test.pkgs...)
 			if len(test.ignores) > 0 {
-				pkg.Except(test.ignores...)
+				pkg = pkg.Except(test.ignores...)
 			}
 			err := pkg.ShouldBeOnlyReferredBy(test.shouldBeOnlyReferredBy...)
 			assert.True(t, test.wantErr == (err != nil))
@@ -263,5 +269,5 @@ func TestPackageRule_ShouldBeOnlyReferredBy(t *testing.T) {
 }
 
 func TestPackageRule_ShouldOnlyRefer(t *testing.T) {
-	assert.NoError(t, Packages("internal/sample/views").ShouldOnlyRefer("vutil"))
+	assert.NoError(t, PackageBy("internal/sample/views").ShouldOnlyRefer("vutil"))
 }

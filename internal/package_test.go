@@ -26,5 +26,5 @@ func TestAllPkgs(t *testing.T) {
 	assert.Equal(t, exp, lo.Map(pkgs, func(item Package, _ int) string {
 		return item.ImportPath()
 	}))
-	assert.Equal(t, Module(), "github.com/kcmvp/archunit")
+	assert.Equal(t, CurrProject().module, "github.com/kcmvp/archunit")
 }
