@@ -1,9 +1,9 @@
 exec:
-    commit-msg-hook: ^#[0-9]+:\s*.{10,}$
-    pre-commit-hook:
+    commit-msg: ^#[0-9]+:\s*.{10,}$
+    pre-commit:
         - lint
         - test
-    pre-push-hook:
+    pre-push:
         - test
 plugins:
     golangci-lint:
