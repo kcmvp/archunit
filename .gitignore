@@ -2,3 +2,4 @@
 *.sql
 *.json
 target
+.DS_store

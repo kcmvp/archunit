@@ -1,3 +1,4 @@
+// nolint
 package module1
 
 import (
@@ -10,6 +11,8 @@ type AppController struct {
 	repository.UserRepository
 }
 
-func (a *AppController) name() {
+func (a *AppController) firstName() {
+}
 
+func (a AppController) lastName() {
 }
