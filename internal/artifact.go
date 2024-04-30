@@ -150,13 +150,13 @@ func (pkg *Package) Functions() []Function {
 		if fObj, ok := obj.(*types.Func); ok {
 			return Function{A: fObj.FullName(), B: fObj}, true
 		} else if typeName, ok := obj.(*types.TypeName); ok {
-			//tObj.Type().(*types.Signature).Recv()
+			// tObj.Type().(*types.Signature).Recv()
 			if namedType, ok := typeName.Type().(*types.Named); ok {
 				// Iterate over the methods of the named type
 				for i := 0; i < namedType.NumMethods(); i++ {
 					method := namedType.Method(i)
 					fmt.Println(method.Type().(*types.Signature).Recv())
-					//return Function{A: method.FullName(), B: method}
+					// return Function{A: method.FullName(), B: method}
 					// Print out the method name and its source file information
 					fmt.Printf("  Method: %s -> %s (Source File: %s)\n", method.FullName(), method.Type(), pkg.Fset.Position(method.Pos()).Filename)
 				}
