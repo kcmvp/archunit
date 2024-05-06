@@ -2,6 +2,7 @@ package archunit
 
 import (
 	"github.com/stretchr/testify/assert"
+	"strings"
 	"testing"
 )
 
@@ -75,8 +76,16 @@ func TestLayer_Sub(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			layer := Packages(tt.name, tt.paths...)
 			assert.Equal(t, tt.size1, len(layer.packages()))
-			layer = layer.Sub(tt.sub...)
+			layer = layer.Sub(tt.name, tt.sub...)
 			assert.Equal(t, tt.size2, len(layer.packages()))
 		})
 	}
+}
+
+func TestAllMethodOfTypeShouldInSameFile(t *testing.T) {
+	err := MethodsOfTypeShouldBeDefinedInSameFile()
+	assert.Errorf(t, err, "%s", err.Error())
+	assert.True(t, strings.Contains(err.Error(), "functions of type (UserService)"))
+	assert.True(t, strings.Contains(err.Error(), "user_service.go"))
+	assert.True(t, strings.Contains(err.Error(), "user_service_ext.go"))
 }
