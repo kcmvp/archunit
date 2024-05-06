@@ -1,16 +1,9 @@
 // nolint
 package archunit
 
-import (
-	"regexp"
-)
+import "github.com/kcmvp/archunit/internal"
 
-var alphabeticReg = regexp.MustCompile("^[a-zA-Z]+$")
-
-type Function struct {
-}
-
-type Functions []Function
+type Functions []internal.Function
 
 func (functions Functions) Exclude(names []string) Functions {
 

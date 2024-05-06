@@ -53,20 +53,33 @@ func SourceNameShould(pattern NamePattern, args ...string) error {
 	return nil
 }
 
-func ExportedMustBeReferenced() error {
+func exportedMustBeReferenced() error {
 	panic("to be implemented")
 }
 
 func MethodsOfTypeShouldBeDefinedInSameFile() error {
-	panic("to be implemented")
+	for _, pkg := range internal.Arch().Packages() {
+		typeFunctions := lo.GroupBy(lo.Filter(pkg.Functions(), func(item internal.Function, _ int) bool {
+			return strings.Contains(item.A, ".")
+		}), func(item internal.Function) string {
+			return strings.ReplaceAll(strings.Split(item.A, ".")[0], "*", "")
+		})
+		for typ, functions := range typeFunctions {
+			files := lo.Uniq(lo.Map(functions, func(item internal.Function, _ int) string {
+				return item.D
+			}))
+			if len(files) > 1 {
+				return fmt.Errorf("functions of type %s are defined in files %v", typ, files)
+			}
+		}
+	}
+	return nil
 }
 
-func ConstantsShouldBeDefinedInSameFileByPackage() error {
-	groups := lo.GroupBy(internal.Arch().AllConstants(), func(item lo.Tuple2[string, string]) string {
-		return item.A
-	})
-	for pkg, files := range groups {
-		if len(files) != 1 {
+func ConstantsShouldBeDefinedInOneFileByPackage() error {
+	for _, pkg := range internal.Arch().Packages() {
+		files := pkg.ConstantFiles()
+		if len(files) > 1 {
 			return fmt.Errorf("package %s constants are definied in files %v", pkg, files)
 		}
 	}
@@ -109,22 +122,15 @@ func (layer Layer) Exclude(paths ...string) Layer {
 	return layer
 }
 
-func (layer Layer) Sub(paths ...string) Layer {
-	var patterns []*regexp.Regexp
-	for _, path := range paths {
-		if p, err := internal.PkgPattern(path); err == nil {
-			patterns = append(patterns, p)
-		} else {
+func (layer Layer) Sub(name string, paths ...string) Layer {
+	patterns := lo.Map(paths, func(path string, _ int) *regexp.Regexp {
+		reg, err := internal.PkgPattern(path)
+		if err != nil {
 			log.Fatal(err)
 		}
-	}
-	segs := lo.Map(paths, func(item string, _ int) string {
-		seg, _ := lo.Find(lo.Reverse(strings.Split(item, "/")), func(item string) bool {
-			return item != "..."
-		})
-		return seg
+		return reg
 	})
-	return Layer{A: fmt.Sprintf("%s-%s", layer.A, strings.Join(segs, "-")),
+	return Layer{A: fmt.Sprintf("%s-%s", layer.A, name),
 		B: lo.Filter(layer.B, func(pkg *internal.Package, _ int) bool {
 			return lo.SomeBy(patterns, func(pattern *regexp.Regexp) bool {
 				return pattern.MatchString(pkg.ID)
@@ -157,7 +163,7 @@ func (layer Layer) ShouldNotReferLayers(layers ...Layer) error {
 }
 
 func (layer Layer) ShouldNotReferPackages(paths ...string) error {
-	return layer.ShouldNotReferLayers(Packages("tmpLayer", paths...))
+	return layer.ShouldNotReferLayers(Packages("_", paths...))
 }
 
 func (layer Layer) ShouldOnlyReferLayers(layers ...Layer) error {
@@ -213,11 +219,7 @@ func (layer Layer) DepthShouldLessThan(depth int) error {
 	return nil
 }
 
-func (layer Layer) Functions() []Functions {
-	panic("to be implemented")
-}
-
-func (layer Layer) ExportedFunctions() []Functions {
+func (layer Layer) exportedFunctions() []Functions {
 	panic("to be implemented")
 }
 

@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"fmt"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"strings"
@@ -64,38 +63,73 @@ func Test_pattern(t *testing.T) {
 }
 
 func TestAllConstants(t *testing.T) {
-	constants := Arch().AllConstants()
-	assert.Equal(t, 2, len(constants))
-	files := lo.Map(constants, func(item lo.Tuple2[string, string], _ int) string {
-		return item.B
-	})
 	expected := []string{"archunit/internal/sample/repository/constants.go",
 		"archunit/internal/sample/repository/user_repository.go"}
-	assert.True(t, lo.EveryBy(files, func(f string) bool {
-		return lo.SomeBy(expected, func(e string) bool {
-			return strings.HasSuffix(f, e)
-		})
-	}))
+	for _, pkg := range Arch().Packages() {
+		if pkg.ID == "github.com/kcmvp/archunit/internal/sample/repository" {
+			assert.True(t, lo.EveryBy(pkg.ConstantFiles(), func(item string) bool {
+				return lo.SomeBy(expected, func(exp string) bool {
+					return strings.HasSuffix(item, exp)
+				})
+			}))
+		} else {
+			assert.Equal(t, 0, len(pkg.ConstantFiles()))
+		}
+	}
 }
 
-func TestPackage_Methods(t *testing.T) {
-	//tests := []struct {
-	//	name string
-	//	id   string
-	//	want int
-	//}{
-	//	{
-	//		name: "simple",
-	//		id:   "github.com/kcmvp/archunit/internal/sample/controller/module1",
-	//		want: 3,
-	//	},
-	//}
-	//for _, tt := range tests {
-	//	pkg := Arch().Package(tt.id)
-	//	assert.Equal(t, tt.want, len(pkg.Functions()))
-	//}
-	for _, pkg := range Arch().Packages() {
-		fs := pkg.Functions()
-		fmt.Println(fs)
+func TestPackage_Functions(t *testing.T) {
+	tests := []struct {
+		pkg   string
+		funcs []string
+	}{
+		{
+			pkg: "github.com/kcmvp/archunit/internal",
+			funcs: []string{"Arch (*Artifact).RootDir", "(*Artifact).Module",
+				"(*Artifact).parse", "(*Artifact).Packages", "(*Artifact).AllPackages",
+				"(*Artifact).AllSources", "CleanStr", "(*Package).ConstantFiles",
+				"(*Package).Functions", "PkgPattern"},
+		},
+		{
+			pkg: "github.com/kcmvp/archunit",
+			funcs: []string{"BeLowerCase", "BeUpperCase", "ConstantsShouldBeDefinedInOneFileByPackage", "(Files).NameShould",
+				"(Files).ShouldNotRefer", "(Functions).Exclude", "(Functions).ShouldBeInPackages", "(Functions).ShouldBeInFiles",
+				"(Functions).NameShould", "HavePrefix", "HaveSuffix", "(Layer).Exclude", "(Layer).Sub",
+				"(Layer).packages", "(Layer).imports", "(Layer).ShouldNotReferLayers", "(Layer).ShouldNotReferPackages",
+				"(Layer).ShouldOnlyReferLayers", "(Layer).ShouldOnlyReferPackages", "(Layer).ShouldBeOnlyReferredByLayers",
+				"(Layer).ShouldBeOnlyReferredByPackages", "(Layer).DepthShouldLessThan", "(Layer).exportedFunctions",
+				"(Layer).FunctionsInPackage", "(Layer).FunctionsOfType", "(Layer).FunctionsWithReturn",
+				"(Layer).FunctionsWithParameter", "(Layer).Files", "(Layer).FilesInPackages", "MethodsOfTypeShouldBeDefinedInSameFile",
+				"PackageNameShould", "PackageNameShouldBeSameAsFolderName", "Packages", "SourceNameShould", "exportedMustBeReferenced"},
+		},
+		{
+			pkg:   "github.com/kcmvp/archunit/internal/sample",
+			funcs: []string{"main"},
+		},
+		{
+			pkg: "github.com/kcmvp/archunit/internal/sample/service",
+			funcs: []string{"(UserService).GetUserById", "(UserService).GetUserByNameAndAddress",
+				"(UserService).SearchUsersByFirsName", "(*UserService).SearchUsersByLastName"},
+		},
+		{
+			pkg:   "github.com/kcmvp/archunit/internal/sample/controller/module1",
+			funcs: []string{"(*AppController).firstName", "(AppController).lastNam"},
+		},
 	}
+	for _, pkg := range Arch().Packages() {
+		if len(pkg.Functions()) > 0 {
+			funcs := lo.Map(pkg.Functions(), func(item Function, _ int) string {
+				return item.A
+			})
+			for _, test := range tests {
+				if pkg.ID == test.pkg {
+					assert.True(t, lo.Some(funcs, test.funcs))
+				}
+			}
+		}
+	}
+}
+
+func TestAllSource(t *testing.T) {
+	assert.Equal(t, 19, len(Arch().AllSources()))
 }
