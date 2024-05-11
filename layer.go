@@ -14,10 +14,10 @@ import (
 
 type NamePattern func(name, arg string) bool
 
-func BeLowerCase(name, _ string) bool {
+func LowerCase(name, _ string) bool {
 	return strings.ToLower(name) == name
 }
-func BeUpperCase(name, _ string) bool {
+func UpperCase(name, _ string) bool {
 	return strings.ToUpper(name) == name
 }
 func HavePrefix(name, prefix string) bool {
@@ -36,20 +36,24 @@ func PackageNameShouldBeSameAsFolderName() error {
 	return nil
 }
 
-func PackageNameShould(pattern NamePattern, args ...string) error {
+func PackageNameShouldBe(pattern NamePattern, args ...string) error {
 	if pkg, ok := lo.Find(internal.Arch().AllPackages(), func(item lo.Tuple2[string, string]) bool {
-		return !pattern(item.A, lo.If(args != nil, args[0]).Else(""))
+		return !pattern(item.A, lo.If(args == nil, "").ElseF(func() string {
+			return args[0]
+		}))
 	}); ok {
 		return fmt.Errorf("package %s's name is %s", pkg.A, pkg.B)
 	}
 	return nil
 }
 
-func SourceNameShould(pattern NamePattern, args ...string) error {
+func SourceNameShouldBe(pattern NamePattern, args ...string) error {
 	if file, ok := lo.Find(internal.Arch().AllSources(), func(file string) bool {
-		return !pattern(filepath.Base(file), lo.If(args != nil, args[0]).Else(""))
+		return !pattern(filepath.Base(file), lo.If(args == nil, "").ElseF(func() string {
+			return args[0]
+		}))
 	}); ok {
-		return fmt.Errorf("file %s's name valid break the rule", file)
+		return fmt.Errorf("file %s's name breaks the rule", file)
 	}
 	return nil
 }
@@ -105,7 +109,7 @@ func TypeImplement(interName string) []Type {
 
 type Layer lo.Tuple2[string, []*internal.Package]
 
-func Packages(layerName string, paths ...string) Layer {
+func Packages(layerName string, paths []string) Layer {
 	patterns := lo.Map(paths, func(path string, _ int) *regexp.Regexp {
 		reg, err := internal.PkgPattern(path)
 		if err != nil {
@@ -159,13 +163,13 @@ func (layer Layer) Sub(name string, paths ...string) Layer {
 		})}
 }
 
-func (layer Layer) packages() []string {
+func (layer Layer) Packages() []string {
 	return lo.Map(layer.B, func(item *internal.Package, _ int) string {
 		return item.ID()
 	})
 }
 
-func (layer Layer) imports() []string {
+func (layer Layer) Imports() []string {
 	var imports []string
 	for _, pkg := range layer.B {
 		imports = append(imports, pkg.Imports()...)
@@ -174,35 +178,33 @@ func (layer Layer) imports() []string {
 }
 
 func (layer Layer) ShouldNotReferLayers(layers ...Layer) error {
-	path, ok := lo.Find(layer.imports(), func(ref string) bool {
-		return lo.Contains(layer.packages(), ref)
-	})
-	if ok {
-		fmt.Errorf("%s refers %s", layer.A, path)
+	var packages []string
+	for _, l := range layers {
+		packages = append(packages, l.Packages()...)
 	}
-	return nil
+	path, ok := lo.Find(layer.Imports(), func(ref string) bool {
+		return lo.Contains(packages, ref)
+	})
+	return lo.If(ok, fmt.Errorf("%s refers %s", layer.A, path)).Else(nil)
 }
 
 func (layer Layer) ShouldNotReferPackages(paths ...string) error {
-	return layer.ShouldNotReferLayers(Packages("_", paths...))
+	return layer.ShouldNotReferLayers(Packages("_", paths))
 }
 
 func (layer Layer) ShouldOnlyReferLayers(layers ...Layer) error {
 	var pkgs []string
 	for _, l := range layers {
-		pkgs = append(pkgs, l.packages()...)
+		pkgs = append(pkgs, l.Packages()...)
 	}
-	ref, ok := lo.Find(layer.imports(), func(ref string) bool {
-		return lo.Contains(pkgs, ref)
+	ref, ok := lo.Find(layer.Imports(), func(ref string) bool {
+		return !lo.Contains(pkgs, ref)
 	})
-	if ok {
-		return fmt.Errorf("%s refers %s", layer.A, ref)
-	}
-	return nil
+	return lo.If(ok, fmt.Errorf("%s refers %s", layer.A, ref)).Else(nil)
 }
 
 func (layer Layer) ShouldOnlyReferPackages(paths ...string) error {
-	return layer.ShouldOnlyReferLayers(Packages("tempLayer", paths...))
+	return layer.ShouldOnlyReferLayers(Packages("tempLayer", paths))
 }
 
 func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
@@ -217,7 +219,7 @@ func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
 	})
 	if p, ok := lo.Find(others, func(other *internal.Package) bool {
 		return lo.SomeBy(other.Imports(), func(ref string) bool {
-			return lo.Contains(layer.imports(), ref)
+			return lo.Contains(layer.Imports(), ref)
 		})
 	}); ok {
 		return fmt.Errorf("package %s refer layer %s", p.ID(), layer.A)
@@ -226,7 +228,7 @@ func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
 }
 
 func (layer Layer) ShouldBeOnlyReferredByPackages(paths ...string) error {
-	layer1 := Packages("pkgLayer", paths...)
+	layer1 := Packages("pkgLayer", paths)
 	return layer.ShouldBeOnlyReferredByLayers(layer1)
 }
 
