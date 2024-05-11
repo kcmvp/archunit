@@ -1,23 +1,40 @@
 // nolint
 package archunit
 
-import "github.com/kcmvp/archunit/internal"
+import (
+	"github.com/samber/lo"
+)
 
-type Functions []internal.Function
+type Function lo.Tuple2[string, []string]
 
-func (functions Functions) Exclude(names []string) Functions {
-
+func (functions Function) Exclude(names ...string) Function {
 	panic("to be implemented")
 }
 
-func (functions Functions) ShouldBeInPackages(paths ...string) error {
+func (functions Function) InPackage(paths ...string) Function {
 	panic("to be implemented")
 }
 
-func (functions Functions) ShouldBeInFiles(pattern NamePattern) error {
+func (functions Function) OfType(types ...string) Function {
 	panic("to be implemented")
 }
 
-func (functions Functions) NameShould(pattern NamePattern) error {
+func (functions Function) WithReturn() Function {
+	panic("to be implemented")
+}
+
+func (functions Function) WithParameter() Function {
+	panic("to be implemented")
+}
+
+func (functions Function) ShouldBePrivate() error {
+	panic("to be implemented")
+}
+
+func (functions Function) ShouldBePublic() error {
+	panic("to be implemented")
+}
+
+func (functions Function) NameShould(pattern NamePattern) error {
 	panic("to be implemented")
 }
