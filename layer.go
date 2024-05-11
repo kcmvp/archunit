@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/kcmvp/archunit/internal"
 	"github.com/samber/lo"
+	"go/types"
 	"log"
 	"path/filepath"
 	"regexp"
@@ -59,17 +60,12 @@ func exportedMustBeReferenced() error {
 
 func MethodsOfTypeShouldBeDefinedInSameFile() error {
 	for _, pkg := range internal.Arch().Packages() {
-		typeFunctions := lo.GroupBy(lo.Filter(pkg.Functions(), func(item internal.Function, _ int) bool {
-			return strings.Contains(item.A, ".")
-		}), func(item internal.Function) string {
-			return strings.ReplaceAll(strings.Split(item.A, ".")[0], "*", "")
-		})
-		for typ, functions := range typeFunctions {
-			files := lo.Uniq(lo.Map(functions, func(item internal.Function, _ int) string {
+		for _, typ := range pkg.Types() {
+			files := lo.Uniq(lo.Map(typ.Functions(), func(item internal.Function, _ int) string {
 				return item.D
 			}))
 			if len(files) > 1 {
-				return fmt.Errorf("functions of type %s are defined in files %v", typ, files)
+				return fmt.Errorf("functions of type %s are defined in files %v", typ.Name(), files)
 			}
 		}
 	}
@@ -80,10 +76,31 @@ func ConstantsShouldBeDefinedInOneFileByPackage() error {
 	for _, pkg := range internal.Arch().Packages() {
 		files := pkg.ConstantFiles()
 		if len(files) > 1 {
-			return fmt.Errorf("package %s constants are definied in files %v", pkg, files)
+			return fmt.Errorf("package %s constants are definied in files %v", pkg.ID(), files)
 		}
 	}
 	return nil
+}
+
+func TypeEmbeddedWith(embeds ...string) Types {
+	panic("to be implemented")
+}
+
+func TypeImplement(interName string) []Type {
+	group := lo.GroupBy(internal.Arch().Types(), func(typ internal.Type) int {
+		return lo.If(typ.Interface(), 0).Else(1)
+	})
+	if inter, ok := lo.Find(group[0], func(inter internal.Type) bool {
+		return strings.HasSuffix(inter.Name(), interName)
+	}); ok {
+		typs := lo.Filter(group[1], func(typ internal.Type, _ int) bool {
+			return types.Implements(typ.TypeValue(), inter.TypeValue().Underlying().(*types.Interface))
+		})
+		return lo.Map(typs, func(item internal.Type, _ int) Type {
+			return Type{name: item.Name()}
+		})
+	}
+	return []Type{}
 }
 
 type Layer lo.Tuple2[string, []*internal.Package]
@@ -100,7 +117,7 @@ func Packages(layerName string, paths ...string) Layer {
 		A: layerName,
 		B: lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
 			return lo.ContainsBy(patterns, func(pattern *regexp.Regexp) bool {
-				return pattern.MatchString(pkg.ID)
+				return pattern.MatchString(pkg.ID())
 			})
 		}),
 	}
@@ -116,10 +133,14 @@ func (layer Layer) Exclude(paths ...string) Layer {
 	})
 	layer.B = lo.Filter(layer.B, func(pkg *internal.Package, _ int) bool {
 		return lo.NoneBy(patterns, func(pattern *regexp.Regexp) bool {
-			return pattern.MatchString(pkg.ID)
+			return pattern.MatchString(pkg.ID())
 		})
 	})
 	return layer
+}
+
+func (layer Layer) Package(path string) Package {
+	panic("to be implemented")
 }
 
 func (layer Layer) Sub(name string, paths ...string) Layer {
@@ -133,21 +154,21 @@ func (layer Layer) Sub(name string, paths ...string) Layer {
 	return Layer{A: fmt.Sprintf("%s-%s", layer.A, name),
 		B: lo.Filter(layer.B, func(pkg *internal.Package, _ int) bool {
 			return lo.SomeBy(patterns, func(pattern *regexp.Regexp) bool {
-				return pattern.MatchString(pkg.ID)
+				return pattern.MatchString(pkg.ID())
 			})
 		})}
 }
 
 func (layer Layer) packages() []string {
 	return lo.Map(layer.B, func(item *internal.Package, _ int) string {
-		return item.ID
+		return item.ID()
 	})
 }
 
 func (layer Layer) imports() []string {
 	var imports []string
 	for _, pkg := range layer.B {
-		imports = append(imports, lo.Keys(pkg.Imports)...)
+		imports = append(imports, pkg.Imports()...)
 	}
 	return imports
 }
@@ -191,15 +212,15 @@ func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
 	}
 	others := lo.Filter(internal.Arch().Packages(), func(pkg1 *internal.Package, _ int) bool {
 		return lo.NoneBy(pkgs, func(pkg2 *internal.Package) bool {
-			return pkg1.ID == pkg2.ID
+			return pkg1.ID() == pkg2.ID()
 		})
 	})
 	if p, ok := lo.Find(others, func(other *internal.Package) bool {
-		return lo.SomeBy(lo.Keys(other.Imports), func(ref string) bool {
+		return lo.SomeBy(other.Imports(), func(ref string) bool {
 			return lo.Contains(layer.imports(), ref)
 		})
 	}); ok {
-		return fmt.Errorf("package %s refer layer %s", p.ID, layer.A)
+		return fmt.Errorf("package %s refer layer %s", p.ID(), layer.A)
 	}
 	return nil
 }
@@ -211,37 +232,21 @@ func (layer Layer) ShouldBeOnlyReferredByPackages(paths ...string) error {
 
 func (layer Layer) DepthShouldLessThan(depth int) error {
 	pkg := lo.MaxBy(layer.B, func(a *internal.Package, b *internal.Package) bool {
-		return len(strings.Split(a.ID, "/")) > len(strings.Split(a.ID, "/"))
+		return len(strings.Split(a.ID(), "/")) > len(strings.Split(a.ID(), "/"))
 	})
-	if acc := len(strings.Split(pkg.ID, "/")); acc >= depth {
-		return fmt.Errorf("%s max depth is %d", pkg.ID, acc)
+	if acc := len(strings.Split(pkg.ID(), "/")); acc >= depth {
+		return fmt.Errorf("%s max depth is %d", pkg.ID(), acc)
 	}
 	return nil
 }
 
-func (layer Layer) exportedFunctions() []Functions {
-	panic("to be implemented")
-}
-
-func (layer Layer) FunctionsInPackage(paths ...string) []Functions {
-	panic("to be implemented")
-}
-
-func (layer Layer) FunctionsOfType(types ...string) []Functions {
-	panic("to be implemented")
-}
-
-func (layer Layer) FunctionsWithReturn() Functions {
-	panic("to be implemented")
-}
-
-func (layer Layer) FunctionsWithParameter() Functions {
+func (layer Layer) Types() Types {
 	panic("to be implemented")
 }
 
 func (layer Layer) Files() Files {
 	return lo.Map(layer.B, func(pkg *internal.Package, _ int) File {
-		return File{A: pkg.ID, B: pkg.GoFiles}
+		return File{A: pkg.ID(), B: pkg.GoFiles()}
 	})
 }
 
@@ -255,9 +260,9 @@ func (layer Layer) FilesInPackages(paths ...string) Files {
 	})
 	return lo.FilterMap(layer.B, func(pkg *internal.Package, _ int) (File, bool) {
 		if lo.SomeBy(patterns, func(reg *regexp.Regexp) bool {
-			return reg.MatchString(pkg.ID)
+			return reg.MatchString(pkg.ID())
 		}) {
-			return File{A: pkg.ID, B: pkg.GoFiles}, true
+			return File{A: pkg.ID(), B: pkg.GoFiles()}, true
 		}
 		return File{}, false
 	})

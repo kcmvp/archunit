@@ -6,6 +6,11 @@ import (
 	"github.com/kcmvp/archunit/internal/sample/repository"
 )
 
+type NameService interface {
+	FirstNameI() string
+	LastNameI() string
+}
+
 type UserService struct {
 	userRepository repository.UserRepository
 }
@@ -21,3 +26,18 @@ func (receiver UserService) GetUserByNameAndAddress(name, address string) (model
 func (receiver UserService) SearchUsersByFirsName(firstName string) ([]model.User, error) {
 	panic("for test")
 }
+
+type NameServiceImpl struct {
+}
+
+func (n NameServiceImpl) FirstNameI() string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n NameServiceImpl) LastNameI() string {
+	//TODO implement me
+	panic("implement me")
+}
+
+var _ NameService = (*NameServiceImpl)(nil)

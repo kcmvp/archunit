@@ -1,6 +1,7 @@
 package archunit
 
 import (
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ func TestPackages(t *testing.T) {
 		{
 			name:  "sample only",
 			paths: []string{".../internal/sample"},
-			size1: 1,
+			size1: 0,
 		},
 		{
 			name:   "sample and sub packages",
@@ -85,7 +86,18 @@ func TestLayer_Sub(t *testing.T) {
 func TestAllMethodOfTypeShouldInSameFile(t *testing.T) {
 	err := MethodsOfTypeShouldBeDefinedInSameFile()
 	assert.Errorf(t, err, "%s", err.Error())
-	assert.True(t, strings.Contains(err.Error(), "functions of type (UserService)"))
+	assert.True(t, strings.Contains(err.Error(), "internal/sample/service.UserService"))
 	assert.True(t, strings.Contains(err.Error(), "user_service.go"))
 	assert.True(t, strings.Contains(err.Error(), "user_service_ext.go"))
+}
+
+func TestTypeImplement(t *testing.T) {
+	types := lo.Map(TypeImplement("internal/sample/service.NameService"), func(item Type, _ int) string {
+		return item.name
+	})
+	assert.Equal(t, 2, len(types))
+	assert.True(t, lo.Every([]string{
+		"github.com/kcmvp/archunit/internal/sample/service.NameServiceImpl",
+		"github.com/kcmvp/archunit/internal/sample/service.FullNameImpl",
+	}, types))
 }
