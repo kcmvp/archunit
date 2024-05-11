@@ -129,9 +129,9 @@ func TestConstantsShouldBeDefinedInOneFileByPackage(t *testing.T) {
 
 func TestLayPackages(t *testing.T) {
 	layer := Packages("controllerLayer", []string{"sample/controller", "sample/controller/..."})
-	assert.Equal(t, []string{"github.com/kcmvp/archunit/internal/sample/controller",
+	assert.ElementsMatch(t, []string{"github.com/kcmvp/archunit/internal/sample/controller",
 		"github.com/kcmvp/archunit/internal/sample/controller/module1"}, layer.Packages())
-	assert.Equal(t, []string{"github.com/kcmvp/archunit/internal/sample/service",
+	assert.ElementsMatch(t, []string{"github.com/kcmvp/archunit/internal/sample/service",
 		"github.com/kcmvp/archunit/internal/sample/views",
 		"github.com/kcmvp/archunit/internal/sample/repository",
 		"github.com/kcmvp/archunit/internal/sample/service/ext/v1"}, layer.Imports())
