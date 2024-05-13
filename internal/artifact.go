@@ -78,16 +78,6 @@ func Arch() *Artifact {
 	return arch
 }
 
-func CleanStr(str string) string {
-	cleanStr := func(r rune) rune {
-		if r >= 32 && r != 127 {
-			return r
-		}
-		return -1
-	}
-	return strings.Map(cleanStr, str)
-}
-
 func PkgPattern(path string) (*regexp.Regexp, error) {
 	p := `^(?:[a-zA-Z]+(?:\.[a-zA-Z]+)*|\.\.\.)$`
 	re := regexp.MustCompile(p)
@@ -153,19 +143,6 @@ func (artifact *Artifact) AllSources() []string {
 	}
 	return files
 }
-
-//func (artifact *Artifact) AllInterfaces() []*types.Interface {
-//	var interfaces []*types.Interface
-//	for _, pkg := range artifact.Packages() {
-//		interfaces = append(interfaces, lo.FilterMap(pkg.types, func(typ Type, _ int) (*types.Interface, bool) {
-//			if typ.interfaces {
-//				return typ.named.Underlying().(*types.Interface), true
-//			}
-//			return nil, false
-//		})...)
-//	}
-//	return interfaces
-//}
 
 func (artifact *Artifact) Types() []Type {
 	var types []Type

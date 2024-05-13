@@ -58,10 +58,6 @@ func SourceNameShouldBe(pattern NamePattern, args ...string) error {
 	return nil
 }
 
-func exportedMustBeReferenced() error {
-	panic("to be implemented")
-}
-
 func MethodsOfTypeShouldBeDefinedInSameFile() error {
 	for _, pkg := range internal.Arch().Packages() {
 		for _, typ := range pkg.Types() {
