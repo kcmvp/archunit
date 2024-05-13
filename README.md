@@ -26,8 +26,14 @@ with it, you can make your project's architecture visible, testable and stable b
 
 ## Features
 
-- This project is inspired by the java version [ArchUnit](https://www.archunit.org/), which has been proven best practice in Java
-- Fully tested and easy to use, it can be used any other popular go test frameworks.
+- This project implements the principles of  [Hexagonal architecture](https://en.wikipedia.org/wiki/Hexagonal_architecture_(software)), which has been proven best practice of software architecture.You can easily apply rules with below aspects  
+  - [Common Rules](#common-rules)
+  - [Lay Rules](#lay-rules)
+  - [Package Rules](#package-rules)
+  - [Type Rules](#type-rules) 
+  - [Method Rules](#functionmethod-rules) 
+  - [File Rules](#source-file-rules)
+- Fully tested and easy to use, it can be used with any other popular go test frameworks.
 - **NRTW(No Reinventing The Wheel)**. Keep using builtin golang toolchain at most.
 
 ## Why architecture test matters?
@@ -37,12 +43,15 @@ with it, you can make your project's architecture visible, testable and stable b
 4. **Supporting refactoring and evolution**: Architecture tests provide confidence when refactoring or making changes to the system. They act as a safety net, ensuring that the intended architectural structure is not compromised during the refactoring process. This allows developers to make changes with more confidence, knowing that they won't introduce unintended side effects.
 5. **Facilitating collaboration**: Architecture tests serve as a form of documentation that communicates the intended architectural design to the development team. They provide a shared understanding of the system's structure and help facilitate collaboration among team members. Developers can refer to the tests to understand the architectural decisions and constraints in place.
 
+
+
+
 ## How to Use
-- Import the library
+1. Import the library  
  ```go
  go get github.com/kcmvp/archunit
 ``` 
-- Write a simple test
+2. Write a simple test
  ```go
 func TestAllPackages(t *testing.T) {
     pkgs := AllPackages().packages()
@@ -51,21 +60,23 @@ func TestAllPackages(t *testing.T) {
     assert.NotNil(t, err)
 }
 ```
-## Principles apply to all checks
-- All the checks return an error when it fails, nil error stands for success
-- The **error** contains detail information about the failure
-- Two steps to define a check
-  - Define the criteria of the objects to be checking
-  - Apply rules
-
-## All Checks
-### [Package checks](./package.md)
-
-### Roadmap
-
-- [ ] Package checks
-   - [x] Dependency checks
-   - [ ] Naming checks
-- [ ] Project Layout checks
-- [ ] Method checks
-
+> It's better to keep all the architecture tests in one file
+## Rules
+### Common Rules
+1. PackageNameShouldBeSameAsFolderName
+2. PackageNameShouldBe
+3. SourceNameShouldBe
+4. MethodsOfTypeShouldBeDefinedInSameFile
+5. ConstantsShouldBeDefinedInOneFileByPackage
+### Lay Rules
+1. ShouldNotReferLayers
+2. ShouldNotReferPackages
+3. ShouldOnlyReferLayers
+4. ShouldOnlyReferPackages
+5. ShouldBeOnlyReferredByLayers
+6. ShouldBeOnlyReferredByPackages
+7. DepthShouldLessThan
+### Package Rules
+### Type Rules
+### Function(Method) Rules
+### Source File Rules
