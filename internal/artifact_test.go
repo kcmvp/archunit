@@ -80,15 +80,28 @@ func TestAllConstants(t *testing.T) {
 
 func TestPackage_Functions(t *testing.T) {
 	tests := []struct {
-		pkg    string
-		funcs  []string
-		exists bool
+		pkg     string
+		funcs   []string
+		imports []string
+		exists  bool
 	}{
 		{
 			pkg: "github.com/kcmvp/archunit/internal",
 			funcs: []string{"github.com/kcmvp/archunit/internal.Arch",
 				"github.com/kcmvp/archunit/internal.PkgPattern",
 				"github.com/kcmvp/archunit/internal.function"},
+			imports: []string{
+				"fmt",
+				"os/exec",
+				"golang.org/x/tools/go/packages",
+				"log",
+				"go/types",
+				"regexp",
+				"github.com/samber/lo",
+				"strings",
+				"sync",
+				"github.com/fatih/color",
+			},
 			exists: true,
 		},
 		{
@@ -106,6 +119,16 @@ func TestPackage_Functions(t *testing.T) {
 				"github.com/kcmvp/archunit.TypeEmbeddedWith",
 				"github.com/kcmvp/archunit.TypeImplement",
 			},
+			imports: []string{
+				"fmt",
+				"github.com/kcmvp/archunit/internal",
+				"github.com/samber/lo",
+				"go/types",
+				"log",
+				"path/filepath",
+				"regexp",
+				"strings",
+			},
 			exists: true,
 		},
 		{
@@ -115,16 +138,25 @@ func TestPackage_Functions(t *testing.T) {
 				"github.com/kcmvp/archunit/internal/sample.loadPkgs",
 				"github.com/kcmvp/archunit/internal/sample.main",
 				"github.com/kcmvp/archunit/internal/sample.printImplementation"},
-			exists: false,
+			imports: []string{},
+			exists:  false,
 		},
 		{
-			pkg:    "github.com/kcmvp/archunit/internal/sample/service",
-			funcs:  []string{},
+			pkg:   "github.com/kcmvp/archunit/internal/sample/service",
+			funcs: []string{},
+			imports: []string{
+				"github.com/kcmvp/archunit/internal/sample/repository",
+				"github.com/kcmvp/archunit/internal/sample/model",
+			},
 			exists: true,
 		},
 		{
-			pkg:    "github.com/kcmvp/archunit/internal/sample/controller/module1",
-			funcs:  []string{},
+			pkg:   "github.com/kcmvp/archunit/internal/sample/controller/module1",
+			funcs: []string{},
+			imports: []string{
+				"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
+				"github.com/kcmvp/archunit/internal/sample/repository",
+			},
 			exists: true,
 		},
 	}
@@ -137,8 +169,7 @@ func TestPackage_Functions(t *testing.T) {
 					return item.A
 				})
 				assert.ElementsMatch(t, test.funcs, funcs)
-				//assert.Equal(t, len(test.funcs), len(funcs))
-				//assert.True(t, len(test.funcs) == 0 || lo.Some(funcs, test.funcs))
+				assert.ElementsMatch(t, test.imports, pkg.Imports())
 			}
 		})
 	}
@@ -223,6 +254,7 @@ func TestPkgTypes(t *testing.T) {
 		pkgName string
 		typs    []string
 		valid   bool
+		files   int
 	}{
 		{
 			pkgName: "github.com/kcmvp/archunit/internal",
@@ -234,18 +266,41 @@ func TestPkgTypes(t *testing.T) {
 				"github.com/kcmvp/archunit/internal.Type",
 			},
 			valid: true,
+			files: 1,
+		},
+		{
+			pkgName: "github.com/kcmvp/archunit/internal/sample/service",
+			typs: []string{
+				"github.com/kcmvp/archunit/internal/sample/service.FullNameImpl",
+				"github.com/kcmvp/archunit/internal/sample/service.NameService",
+				"github.com/kcmvp/archunit/internal/sample/service.NameServiceImpl",
+				"github.com/kcmvp/archunit/internal/sample/service.UserService",
+			},
+			valid: true,
+			files: 2,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.pkgName, func(t *testing.T) {
 			pkg, ok := Arch().Package(test.pkgName)
 			assert.Equal(t, ok, test.valid)
-			assert.Equal(t, 5, len(pkg.Types()))
+			assert.Equal(t, len(test.typs), len(pkg.Types()))
 			typs := lo.Map(pkg.Types(), func(item Type, _ int) string {
 				return item.Name()
 			})
 			assert.ElementsMatch(t, test.typs, typs)
-			assert.Equal(t, 1, len(pkg.GoFiles()))
+			assert.Equal(t, test.files, len(pkg.GoFiles()))
+			if typ, ok := lo.Find(pkg.Types(), func(typ Type) bool {
+				return strings.HasSuffix(typ.Name(), "sample/service.NameService")
+			}); ok {
+				assert.True(t, typ.Interface())
+				assert.NotNil(t, typ.TypeValue())
+			}
 		})
 	}
+}
+
+func TestArtifact(t *testing.T) {
+	assert.NotEmpty(t, Arch().RootDir())
+	assert.Equal(t, "github.com/kcmvp/archunit", Arch().Module())
 }
