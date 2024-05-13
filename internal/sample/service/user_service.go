@@ -23,7 +23,7 @@ func (receiver UserService) GetUserByNameAndAddress(name, address string) (model
 	panic("for test")
 }
 
-func (receiver UserService) SearchUsersByFirsName(firstName string) ([]model.User, error) {
+func (receiver UserService) SearchUsersByFirstName(firstName string) ([]model.User, error) {
 	panic("for test")
 }
 
