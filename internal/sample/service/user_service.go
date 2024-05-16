@@ -2,9 +2,20 @@
 package service
 
 import (
+	"context"
 	"github.com/kcmvp/archunit/internal/sample/model"
 	"github.com/kcmvp/archunit/internal/sample/repository"
 )
+
+type Audit func(string, context.Context) []string
+
+var auditLog Audit = func(s string, ctx context.Context) []string {
+	return []string{}
+}
+
+func AuditCall(id string, ctx context.Context) []string {
+	return []string{}
+}
 
 type NameService interface {
 	FirstNameI() string

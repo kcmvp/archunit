@@ -63,19 +63,33 @@ func Test_pattern(t *testing.T) {
 }
 
 func TestAllConstants(t *testing.T) {
-	expected := []string{"archunit/internal/sample/repository/constants.go",
-		"archunit/internal/sample/repository/user_repository.go"}
-	for _, pkg := range Arch().Packages() {
-		if pkg.ID() == "github.com/kcmvp/archunit/internal/sample/repository" {
-			assert.True(t, lo.EveryBy(pkg.ConstantFiles(), func(item string) bool {
-				return lo.SomeBy(expected, func(exp string) bool {
-					return strings.HasSuffix(item, exp)
-				})
-			}))
-		} else {
-			assert.Equal(t, 0, len(pkg.ConstantFiles()))
-		}
+	tests := []struct {
+		pkg   string
+		files []string
+	}{
+		{
+			pkg: "github.com/kcmvp/archunit/internal/sample/repository",
+			files: []string{"archunit/internal/sample/repository/constants.go",
+				"archunit/internal/sample/repository/user_repository.go"},
+		},
+		{
+			pkg:   "github.com/kcmvp/archunit",
+			files: []string{"archunit/layer.go"},
+		},
 	}
+	for _, test := range tests {
+		t.Run(test.pkg, func(t *testing.T) {
+			pkg := Arch().Package(test.pkg)
+			assert.NotNil(t, pkg)
+			assert.Equal(t, len(test.files), len(pkg.ConstantFiles()))
+			lo.EveryBy(test.files, func(f1 string) bool {
+				return lo.EveryBy(pkg.ConstantFiles(), func(f2 string) bool {
+					return strings.HasSuffix(f2, f1)
+				})
+			})
+		})
+	}
+
 }
 
 func TestPackage_Functions(t *testing.T) {
@@ -87,9 +101,11 @@ func TestPackage_Functions(t *testing.T) {
 	}{
 		{
 			pkg: "github.com/kcmvp/archunit/internal",
-			funcs: []string{"github.com/kcmvp/archunit/internal.Arch",
-				"github.com/kcmvp/archunit/internal.PkgPattern",
-				"github.com/kcmvp/archunit/internal.function"},
+			funcs: []string{
+				"Arch",
+				"PkgPattern",
+				"parse",
+			},
 			imports: []string{
 				"fmt",
 				"os/exec",
@@ -101,23 +117,25 @@ func TestPackage_Functions(t *testing.T) {
 				"strings",
 				"sync",
 				"github.com/fatih/color",
+				"github.com/samber/lo/parallel",
 			},
 			exists: true,
 		},
 		{
 			pkg: "github.com/kcmvp/archunit",
-			funcs: []string{"github.com/kcmvp/archunit.LowerCase",
-				"github.com/kcmvp/archunit.UpperCase",
-				"github.com/kcmvp/archunit.ConstantsShouldBeDefinedInOneFileByPackage",
-				"github.com/kcmvp/archunit.HavePrefix",
-				"github.com/kcmvp/archunit.HaveSuffix",
-				"github.com/kcmvp/archunit.MethodsOfTypeShouldBeDefinedInSameFile",
-				"github.com/kcmvp/archunit.PackageNameShouldBe",
-				"github.com/kcmvp/archunit.PackageNameShouldBeSameAsFolderName",
-				"github.com/kcmvp/archunit.Packages",
-				"github.com/kcmvp/archunit.SourceNameShouldBe",
-				"github.com/kcmvp/archunit.TypeEmbeddedWith",
-				"github.com/kcmvp/archunit.TypeImplement",
+			funcs: []string{
+				"BeLowerCase",
+				"BeUpperCase",
+				"ConstantsShouldBeDefinedInOneFileByPackage",
+				"FunctionsOfType",
+				"HavePrefix",
+				"HaveSuffix",
+				"Lay",
+				"AllTypes",
+				"AllPackages",
+				"SourceNameShould",
+				"TypesEmbeddedWith",
+				"TypesImplement",
 			},
 			imports: []string{
 				"fmt",
@@ -128,23 +146,28 @@ func TestPackage_Functions(t *testing.T) {
 				"path/filepath",
 				"regexp",
 				"strings",
+				"github.com/samber/lo/parallel",
+				"sync",
 			},
 			exists: true,
 		},
 		{
 			pkg: "github.com/kcmvp/archunit/internal/sample",
-			funcs: []string{"github.com/kcmvp/archunit/internal/sample.PrintImplementations",
-				"github.com/kcmvp/archunit/internal/sample.findInterface",
-				"github.com/kcmvp/archunit/internal/sample.loadPkgs",
-				"github.com/kcmvp/archunit/internal/sample.main",
-				"github.com/kcmvp/archunit/internal/sample.printImplementation"},
-			imports: []string{},
-			exists:  false,
+			funcs: []string{
+				"start",
+			},
+			imports: []string{
+				"github.com/gin-gonic/gin",
+			},
+			exists: true,
 		},
 		{
-			pkg:   "github.com/kcmvp/archunit/internal/sample/service",
-			funcs: []string{},
+			pkg: "github.com/kcmvp/archunit/internal/sample/service",
+			funcs: []string{
+				"AuditCall",
+			},
 			imports: []string{
+				"context",
 				"github.com/kcmvp/archunit/internal/sample/repository",
 				"github.com/kcmvp/archunit/internal/sample/model",
 			},
@@ -162,11 +185,11 @@ func TestPackage_Functions(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.pkg, func(t *testing.T) {
-			pkg, ok := Arch().Package(test.pkg)
-			assert.Equal(t, ok, test.exists)
-			if ok {
+			pkg := Arch().Package(test.pkg)
+			assert.Equal(t, lo.If(pkg == nil, false).Else(true), test.exists)
+			if pkg != nil {
 				funcs := lo.Map(pkg.Functions(), func(item Function, _ int) string {
-					return item.A
+					return item.Name()
 				})
 				assert.ElementsMatch(t, test.funcs, funcs)
 				assert.ElementsMatch(t, test.imports, pkg.Imports())
@@ -177,60 +200,69 @@ func TestPackage_Functions(t *testing.T) {
 }
 
 func TestAllSource(t *testing.T) {
-	assert.Equal(t, 20, len(Arch().AllSources()))
+	assert.Equal(t, 22, len(Arch().GoFiles()))
 }
 
-func TestFunctionsOfType(t *testing.T) {
+func TestMethodsOfType(t *testing.T) {
 	tests := []struct {
 		typName   string
+		exists    bool
 		functions []string
 	}{
 		{
 			typName: "internal/sample/service.UserService",
+			exists:  true,
 			functions: []string{
-				"(github.com/kcmvp/archunit/internal/sample/service.UserService).GetUserById",
-				"(github.com/kcmvp/archunit/internal/sample/service.UserService).GetUserByNameAndAddress",
-				"(github.com/kcmvp/archunit/internal/sample/service.UserService).SearchUsersByFirstName",
-				"(*github.com/kcmvp/archunit/internal/sample/service.UserService).SearchUsersByLastName"},
+				"GetUserById",
+				"GetUserByNameAndAddress",
+				"SearchUsersByFirstName",
+				"SearchUsersByLastName",
+			},
 		},
 		{
 			typName: "internal/sample/service.NameService",
+			exists:  true,
 			functions: []string{
-				"(github.com/kcmvp/archunit/internal/sample/service.NameService).FirstNameI",
-				"(github.com/kcmvp/archunit/internal/sample/service.NameService).LastNameI",
+				"FirstNameI",
+				"LastNameI",
 			},
 		},
 		{
 			typName:   "internal/sample/service.NameService1",
+			exists:    false,
+			functions: []string{},
+		},
+		{
+			typName:   "internal/sample/service.Audit",
+			exists:    true,
 			functions: []string{},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.typName, func(t *testing.T) {
-			functions := Arch().FunctionsOfType(test.typName)
-			fs := lo.Map(functions, func(item Function, _ int) string {
-				return item.Name()
-			})
-			assert.ElementsMatch(t, test.functions, fs)
-			if f, ok := lo.Find(functions, func(item Function) bool {
-				return strings.HasSuffix(item.Name(), "service.UserService).SearchUsersByFirstName")
-			}); ok {
-				assert.Equal(t, f.Params(), []Param{
-					{"firstName", "string"},
+			typ, ok := Arch().Type(test.typName)
+			assert.Equal(t, ok, test.exists)
+			if ok {
+				funcs := lo.Map(typ.Methods(), func(item Function, _ int) string {
+					return item.Name()
 				})
-				assert.Equal(t, f.Returns(), []string{
-					"error", "[]github.com/kcmvp/archunit/internal/sample/model.User",
-				})
+				assert.ElementsMatch(t, funcs, test.functions)
+				if f, ok := lo.Find(typ.Methods(), func(item Function) bool {
+					return strings.HasSuffix(item.Name(), "service.UserService).SearchUsersByFirstName")
+				}); ok {
+					assert.Equal(t, f.Params(), []Param{
+						{"firstName", "string"},
+					})
+					assert.Equal(t, f.Returns(), []string{
+						"error", "[]github.com/kcmvp/archunit/internal/sample/model.User",
+					})
+				}
 			}
-
 		})
 	}
 }
 
 func TestArtifact_AllPackages(t *testing.T) {
-	allPkgs := lo.Map(Arch().AllPackages(), func(item lo.Tuple2[string, string], _ int) string {
-		return item.A
-	})
 	expPkgs := []string{"github.com/kcmvp/archunit/internal",
 		"github.com/kcmvp/archunit",
 		"github.com/kcmvp/archunit/internal/sample/model",
@@ -244,9 +276,13 @@ func TestArtifact_AllPackages(t *testing.T) {
 		"github.com/kcmvp/archunit/internal/sample/repository/ext",
 		"github.com/kcmvp/archunit/internal/sample/service/ext",
 		"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
-		"github.com/kcmvp/archunit/internal/sample/service/thirdparty"}
-	assert.Equal(t, 14, len(allPkgs))
-	assert.ElementsMatch(t, expPkgs, allPkgs)
+		"github.com/kcmvp/archunit/internal/sample/service/thirdparty",
+		"github.com/kcmvp/archunit/internal/sample",
+	}
+	keys := lo.Map(Arch().Packages(), func(item *Package, _ int) string {
+		return item.ID()
+	})
+	assert.ElementsMatch(t, expPkgs, keys)
 }
 
 func TestPkgTypes(t *testing.T) {
@@ -263,7 +299,9 @@ func TestPkgTypes(t *testing.T) {
 				"github.com/kcmvp/archunit/internal.Function",
 				"github.com/kcmvp/archunit/internal.Package",
 				"github.com/kcmvp/archunit/internal.Param",
+				"github.com/kcmvp/archunit/internal.ParseMode",
 				"github.com/kcmvp/archunit/internal.Type",
+				"github.com/kcmvp/archunit/internal.Variable",
 			},
 			valid: true,
 			files: 1,
@@ -271,6 +309,7 @@ func TestPkgTypes(t *testing.T) {
 		{
 			pkgName: "github.com/kcmvp/archunit/internal/sample/service",
 			typs: []string{
+				"github.com/kcmvp/archunit/internal/sample/service.Audit",
 				"github.com/kcmvp/archunit/internal/sample/service.FullNameImpl",
 				"github.com/kcmvp/archunit/internal/sample/service.NameService",
 				"github.com/kcmvp/archunit/internal/sample/service.NameServiceImpl",
@@ -282,8 +321,8 @@ func TestPkgTypes(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.pkgName, func(t *testing.T) {
-			pkg, ok := Arch().Package(test.pkgName)
-			assert.Equal(t, ok, test.valid)
+			pkg := Arch().Package(test.pkgName)
+			assert.Equal(t, lo.If(pkg == nil, false).Else(true), test.valid)
 			assert.Equal(t, len(test.typs), len(pkg.Types()))
 			typs := lo.Map(pkg.Types(), func(item Type, _ int) string {
 				return item.Name()
@@ -294,7 +333,6 @@ func TestPkgTypes(t *testing.T) {
 				return strings.HasSuffix(typ.Name(), "sample/service.NameService")
 			}); ok {
 				assert.True(t, typ.Interface())
-				assert.NotNil(t, typ.TypeValue())
 			}
 		})
 	}

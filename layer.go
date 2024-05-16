@@ -5,19 +5,25 @@ import (
 	"fmt"
 	"github.com/kcmvp/archunit/internal"
 	"github.com/samber/lo"
-	"go/types"
 	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
 
+type Visibility int
+
+const (
+	Public Visibility = iota
+	Private
+)
+
 type NamePattern func(name, arg string) bool
 
-func LowerCase(name, _ string) bool {
+func BeLowerCase(name, _ string) bool {
 	return strings.ToLower(name) == name
 }
-func UpperCase(name, _ string) bool {
+func BeUpperCase(name, _ string) bool {
 	return strings.ToUpper(name) == name
 }
 func HavePrefix(name, prefix string) bool {
@@ -27,28 +33,10 @@ func HaveSuffix(name, suffix string) bool {
 	return strings.HasSuffix(name, suffix)
 }
 
-func PackageNameShouldBeSameAsFolderName() error {
-	if pkg, ok := lo.Find(internal.Arch().AllPackages(), func(item lo.Tuple2[string, string]) bool {
-		return !strings.HasSuffix(item.A, item.B)
-	}); ok {
-		return fmt.Errorf("package %s's name is %s", pkg.A, pkg.B)
-	}
-	return nil
-}
+type Layer []*internal.Package
 
-func PackageNameShouldBe(pattern NamePattern, args ...string) error {
-	if pkg, ok := lo.Find(internal.Arch().AllPackages(), func(item lo.Tuple2[string, string]) bool {
-		return !pattern(item.A, lo.If(args == nil, "").ElseF(func() string {
-			return args[0]
-		}))
-	}); ok {
-		return fmt.Errorf("package %s's name is %s", pkg.A, pkg.B)
-	}
-	return nil
-}
-
-func SourceNameShouldBe(pattern NamePattern, args ...string) error {
-	if file, ok := lo.Find(internal.Arch().AllSources(), func(file string) bool {
+func SourceNameShould(pattern NamePattern, args ...string) error {
+	if file, ok := lo.Find(internal.Arch().GoFiles(), func(file string) bool {
 		return !pattern(filepath.Base(file), lo.If(args == nil, "").ElseF(func() string {
 			return args[0]
 		}))
@@ -58,19 +46,19 @@ func SourceNameShouldBe(pattern NamePattern, args ...string) error {
 	return nil
 }
 
-func MethodsOfTypeShouldBeDefinedInSameFile() error {
-	for _, pkg := range internal.Arch().Packages() {
-		for _, typ := range pkg.Types() {
-			files := lo.Uniq(lo.Map(typ.Functions(), func(item internal.Function, _ int) string {
-				return item.D
-			}))
-			if len(files) > 1 {
-				return fmt.Errorf("functions of type %s are defined in files %v", typ.Name(), files)
-			}
-		}
-	}
-	return nil
-}
+//func MethodsOfTypeShouldBeDefinedInSameFile() error {
+//	for _, pkg := range internal.Arch().Packages() {
+//		for _, typ := range pkg.Types() {
+//			files := lo.Uniq(lo.Map(typ.Methods(), func(f internal.Function, _ int) string {
+//				return f.GoFile()
+//			}))
+//			if len(files) > 1 {
+//				return fmt.Errorf("methods of type %s are defined in files %v", typ.Name(), files)
+//			}
+//		}
+//	}
+//	return nil
+//}
 
 func ConstantsShouldBeDefinedInOneFileByPackage() error {
 	for _, pkg := range internal.Arch().Packages() {
@@ -82,65 +70,49 @@ func ConstantsShouldBeDefinedInOneFileByPackage() error {
 	return nil
 }
 
-func TypeEmbeddedWith(embeds ...string) Types {
-	panic("to be implemented")
-}
-
-func TypeImplement(interName string) []Type {
-	group := lo.GroupBy(internal.Arch().Types(), func(typ internal.Type) int {
-		return lo.If(typ.Interface(), 0).Else(1)
-	})
-	if inter, ok := lo.Find(group[0], func(inter internal.Type) bool {
-		return strings.HasSuffix(inter.Name(), interName)
-	}); ok {
-		typs := lo.Filter(group[1], func(typ internal.Type, _ int) bool {
-			return types.Implements(typ.TypeValue(), inter.TypeValue().Underlying().(*types.Interface))
-		})
-		return lo.Map(typs, func(item internal.Type, _ int) Type {
-			return Type{name: item.Name()}
-		})
-	}
-	return []Type{}
-}
-
-type Layer lo.Tuple2[string, []*internal.Package]
-
-func Packages(layerName string, paths []string) Layer {
-	patterns := lo.Map(paths, func(path string, _ int) *regexp.Regexp {
+func Lay(pkgPaths ...string) Layer {
+	patterns := lo.Map(pkgPaths, func(path string, _ int) *regexp.Regexp {
 		reg, err := internal.PkgPattern(path)
 		if err != nil {
 			log.Fatal(err)
 		}
 		return reg
 	})
-	return Layer{
-		A: layerName,
-		B: lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
-			return lo.ContainsBy(patterns, func(pattern *regexp.Regexp) bool {
-				return pattern.MatchString(pkg.ID())
-			})
-		}),
-	}
+	return lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
+		return lo.ContainsBy(patterns, func(pattern *regexp.Regexp) bool {
+			return pattern.MatchString(pkg.ID())
+		})
+	})
 }
 
-func (layer Layer) Exclude(paths ...string) Layer {
-	patterns := lo.Map(paths, func(path string, _ int) *regexp.Regexp {
+func (layer Layer) Name() string {
+	pkgs := layer.packages()
+	idx := 0
+	left := lo.DropWhile(pkgs, func(item string) bool {
+		idx++
+		if idx == len(pkgs) {
+			return false
+		}
+		return lo.ContainsBy(pkgs[idx:], func(l string) bool {
+			return strings.HasPrefix(l, item)
+		})
+	})
+	return fmt.Sprintf("%v", left)
+}
+
+func (layer Layer) Exclude(pkgPaths ...string) Layer {
+	patterns := lo.Map(pkgPaths, func(path string, _ int) *regexp.Regexp {
 		reg, err := internal.PkgPattern(path)
 		if err != nil {
 			log.Fatal(err)
 		}
 		return reg
 	})
-	layer.B = lo.Filter(layer.B, func(pkg *internal.Package, _ int) bool {
+	return lo.Filter(layer, func(pkg *internal.Package, _ int) bool {
 		return lo.NoneBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
 		})
 	})
-	return layer
-}
-
-func (layer Layer) Package(path string) Package {
-	panic("to be implemented")
 }
 
 func (layer Layer) Sub(name string, paths ...string) Layer {
@@ -151,23 +123,22 @@ func (layer Layer) Sub(name string, paths ...string) Layer {
 		}
 		return reg
 	})
-	return Layer{A: fmt.Sprintf("%s-%s", layer.A, name),
-		B: lo.Filter(layer.B, func(pkg *internal.Package, _ int) bool {
-			return lo.SomeBy(patterns, func(pattern *regexp.Regexp) bool {
-				return pattern.MatchString(pkg.ID())
-			})
-		})}
+	return lo.Filter(layer, func(pkg *internal.Package, _ int) bool {
+		return lo.SomeBy(patterns, func(pattern *regexp.Regexp) bool {
+			return pattern.MatchString(pkg.ID())
+		})
+	})
 }
 
-func (layer Layer) Packages() []string {
-	return lo.Map(layer.B, func(item *internal.Package, _ int) string {
-		return item.ID()
+func (layer Layer) packages() []string {
+	return lo.Map(layer, func(item *internal.Package, _ int) string {
+		return item.Path()
 	})
 }
 
 func (layer Layer) Imports() []string {
 	var imports []string
-	for _, pkg := range layer.B {
+	for _, pkg := range layer {
 		imports = append(imports, pkg.Imports()...)
 	}
 	return imports
@@ -176,37 +147,37 @@ func (layer Layer) Imports() []string {
 func (layer Layer) ShouldNotReferLayers(layers ...Layer) error {
 	var packages []string
 	for _, l := range layers {
-		packages = append(packages, l.Packages()...)
+		packages = append(packages, l.packages()...)
 	}
 	path, ok := lo.Find(layer.Imports(), func(ref string) bool {
 		return lo.Contains(packages, ref)
 	})
-	return lo.If(ok, fmt.Errorf("%s refers %s", layer.A, path)).Else(nil)
+	return lo.If(ok, fmt.Errorf("%s refers %s", layer.Name(), path)).Else(nil)
 }
 
 func (layer Layer) ShouldNotReferPackages(paths ...string) error {
-	return layer.ShouldNotReferLayers(Packages("_", paths))
+	return layer.ShouldNotReferLayers(Lay(paths...))
 }
 
 func (layer Layer) ShouldOnlyReferLayers(layers ...Layer) error {
 	var pkgs []string
 	for _, l := range layers {
-		pkgs = append(pkgs, l.Packages()...)
+		pkgs = append(pkgs, l.packages()...)
 	}
 	ref, ok := lo.Find(layer.Imports(), func(ref string) bool {
 		return !lo.Contains(pkgs, ref)
 	})
-	return lo.If(ok, fmt.Errorf("%s refers %s", layer.A, ref)).Else(nil)
+	return lo.If(ok, fmt.Errorf("%s refers %s", layer.Name(), ref)).Else(nil)
 }
 
 func (layer Layer) ShouldOnlyReferPackages(paths ...string) error {
-	return layer.ShouldOnlyReferLayers(Packages("tempLayer", paths))
+	return layer.ShouldOnlyReferLayers(Lay(paths...))
 }
 
 func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
 	var pkgs []*internal.Package
 	for _, l := range layers {
-		pkgs = append(pkgs, l.B...)
+		pkgs = append(pkgs, l...)
 	}
 	others := lo.Filter(internal.Arch().Packages(), func(pkg1 *internal.Package, _ int) bool {
 		return lo.NoneBy(pkgs, func(pkg2 *internal.Package) bool {
@@ -218,18 +189,18 @@ func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
 			return lo.Contains(layer.Imports(), ref)
 		})
 	}); ok {
-		return fmt.Errorf("package %s refer layer %s", p.ID(), layer.A)
+		return fmt.Errorf("package %s refer layer %s", p.ID(), layer.Name())
 	}
 	return nil
 }
 
 func (layer Layer) ShouldBeOnlyReferredByPackages(paths ...string) error {
-	layer1 := Packages("pkgLayer", paths)
+	layer1 := Lay(paths...)
 	return layer.ShouldBeOnlyReferredByLayers(layer1)
 }
 
 func (layer Layer) DepthShouldLessThan(depth int) error {
-	pkg := lo.MaxBy(layer.B, func(a *internal.Package, b *internal.Package) bool {
+	pkg := lo.MaxBy(layer, func(a *internal.Package, b *internal.Package) bool {
 		return len(strings.Split(a.ID(), "/")) > len(strings.Split(a.ID(), "/"))
 	})
 	if acc := len(strings.Split(pkg.ID(), "/")); acc >= depth {
@@ -243,7 +214,7 @@ func (layer Layer) Types() Types {
 }
 
 func (layer Layer) Files() Files {
-	return lo.Map(layer.B, func(pkg *internal.Package, _ int) File {
+	return lo.Map(layer, func(pkg *internal.Package, _ int) File {
 		return File{A: pkg.ID(), B: pkg.GoFiles()}
 	})
 }
@@ -256,7 +227,7 @@ func (layer Layer) FilesInPackages(paths ...string) Files {
 		}
 		return reg
 	})
-	return lo.FilterMap(layer.B, func(pkg *internal.Package, _ int) (File, bool) {
+	return lo.FilterMap(layer, func(pkg *internal.Package, _ int) (File, bool) {
 		if lo.SomeBy(patterns, func(reg *regexp.Regexp) bool {
 			return reg.MatchString(pkg.ID())
 		}) {
