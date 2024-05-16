@@ -2,6 +2,9 @@ package internal
 
 import (
 	"fmt"
+	"github.com/fatih/color"
+	"github.com/samber/lo"
+	lop "github.com/samber/lo/parallel"
 	"go/types"
 	"log"
 	"os/exec"
@@ -9,10 +12,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fatih/color"
-	"github.com/samber/lo"
-
 	"golang.org/x/tools/go/packages"
+)
+
+type ParseMode int
+
+const (
+	ParseCon ParseMode = 1 << iota
+	ParseFun
+	ParseTyp
+	ParseVar
 )
 
 var (
@@ -20,28 +29,31 @@ var (
 	arch *Artifact
 )
 
-type (
-	Param    lo.Tuple2[string, string]
-	Function lo.Tuple4[string, []Param, []string, string]
-)
-
 type Package struct {
 	raw          *packages.Package
 	constantsDef []string
-	functions    []*types.Func
+	functions    []Function
 	types        []Type
 }
 
-type Type struct {
-	named      *types.Named
-	pkg        *packages.Package
-	interfaces bool
+type Param lo.Tuple2[string, string]
+
+type Function struct {
+	raw *types.Func
 }
 
+type Type struct {
+	raw *types.Named
+}
+
+type Variable struct {
+	pkg string
+	raw *types.Named
+}
 type Artifact struct {
 	rootDir string
 	module  string
-	pkgs    []*Package
+	pkgs    sync.Map
 }
 
 func (artifact *Artifact) RootDir() string {
@@ -70,10 +82,9 @@ func Arch() *Artifact {
 			color.Red("Error loading project: %w", err)
 			return
 		}
-		for _, pkg := range pkgs {
-			arch.pkgs = append(arch.pkgs, &Package{raw: pkg})
-		}
-		arch.parse()
+		lop.ForEach(pkgs, func(pkg *packages.Package, _ int) {
+			arch.pkgs.Store(pkg.ID, parse(pkg, ParseCon|ParseFun|ParseTyp))
+		})
 	})
 	return arch
 }
@@ -91,133 +102,99 @@ func PkgPattern(path string) (*regexp.Regexp, error) {
 	path = strings.ReplaceAll(path, "...", ".*")
 	return regexp.MustCompile(fmt.Sprintf("%s$", path)), nil
 }
-func (artifact *Artifact) parse() {
-	for _, pkg := range artifact.pkgs {
-		typPkg := pkg.raw.Types
-		if typPkg == nil {
-			continue
-		}
-		scope := typPkg.Scope()
-		for _, name := range scope.Names() {
-			obj := scope.Lookup(name)
-			file := pkg.raw.Fset.Position(obj.Pos()).Filename
-			if _, ok := obj.(*types.Const); ok {
-				if !lo.Contains(pkg.constantsDef, file) {
-					pkg.constantsDef = append(pkg.constantsDef, file)
-				}
-			} else if fObj, ok := obj.(*types.Func); ok {
-				pkg.functions = append(pkg.functions, fObj)
-			} else if _, ok = obj.(*types.TypeName); ok {
-				if namedType, ok := obj.Type().(*types.Named); ok {
-					typ := Type{named: namedType, pkg: pkg.raw}
-					if _, ok := namedType.Underlying().(*types.Interface); ok {
-						typ.interfaces = true
-					}
-					pkg.types = append(pkg.types, typ)
+
+func parse(pkg *packages.Package, mode ParseMode) *Package {
+	archPkg := &Package{raw: pkg}
+	typPkg := pkg.Types
+	scope := typPkg.Scope()
+	lo.ForEach(scope.Names(), func(name string, _ int) {
+		obj := scope.Lookup(name)
+		file := pkg.Fset.Position(obj.Pos()).Filename
+		switch vType := obj.(type) {
+		case *types.Const:
+			if ParseCon&mode == ParseCon && !lo.Contains(archPkg.constantsDef, file) {
+				archPkg.constantsDef = append(archPkg.constantsDef, file)
+			}
+		case *types.Func:
+			if ParseFun&mode == ParseFun {
+				archPkg.functions = append(archPkg.functions, Function{raw: vType})
+			}
+		case *types.TypeName:
+			if ParseTyp&mode == ParseTyp {
+				if namedType, ok := vType.Type().(*types.Named); ok {
+					archPkg.types = append(archPkg.types, Type{raw: namedType})
 				}
 			}
+		case *types.Var:
+			if ParseVar&mode == ParseVar {
+				panic("unreachable")
+			}
 		}
-	}
+	})
+	return archPkg
 }
 
 func (artifact *Artifact) Packages() []*Package {
-	return artifact.pkgs
-}
-
-func (artifact *Artifact) Package(path string) (*Package, bool) {
-	return lo.Find(artifact.pkgs, func(pkg *Package) bool {
-		return pkg.raw.ID == path
+	var pkgs []*Package
+	artifact.pkgs.Range(func(_, value any) bool {
+		pkgs = append(pkgs, value.(*Package))
+		return true
 	})
+	return pkgs
 }
 
-func (artifact *Artifact) AllPackages() []lo.Tuple2[string, string] {
-	return lo.Map(artifact.pkgs, func(item *Package, _ int) lo.Tuple2[string, string] {
-		return lo.Tuple2[string, string]{A: item.raw.ID, B: item.raw.Name}
-	})
+func (artifact *Artifact) Package(id string) *Package {
+	if pkg, ok := artifact.pkgs.Load(id); ok {
+		return pkg.(*Package)
+	}
+	return nil
 }
 
-func (artifact *Artifact) AllSources() []string {
+func (artifact *Artifact) GoFiles() []string {
 	var files []string
-	for _, pkg := range artifact.pkgs {
+	for _, pkg := range artifact.Packages() {
 		files = append(files, pkg.raw.GoFiles...)
 	}
 	return files
 }
 
-func (artifact *Artifact) Types() []Type {
-	var types []Type
-	for _, pkg := range artifact.pkgs {
-		types = append(types, pkg.types...)
-	}
-	return types
-}
-
-func (typ Type) Name() string {
-	return typ.named.String()
-}
-
-func (typ Type) Interface() bool {
-	return typ.interfaces
-}
-
-func (typ Type) TypeValue() *types.Named {
-	return typ.named
-}
-
-func (typ Type) Functions() []Function {
-	var functions []Function
-	if typ.interfaces {
-		iTyp := typ.named.Underlying().(*types.Interface)
-		n := iTyp.NumMethods()
-		for i := 0; i < n; i++ {
-			method := iTyp.Method(i)
-			functions = append(functions, function(typ.pkg, method))
+// Type returns the type of specified type name, return false when can not find the type
+// typName type name. You can just use short name of types in current module eg: internal/sample/service.UserService
+// for the types from dependency a full qualified type name must be supplied eg: github.com/gin-gonic/gin.Context
+func (artifact *Artifact) Type(typName string) (Type, bool) {
+	prefix := strings.Split(typName, "/")[0]
+	typName = lo.If(strings.Contains(prefix, "."), typName).Else(fmt.Sprintf("%s/%s", artifact.Module(), typName))
+	pkgName := strings.Join(lo.DropRight(strings.Split(typName, "."), 1), ".")
+	pkg, ok := artifact.pkgs.Load(pkgName)
+	if !ok {
+		for _, e := range artifact.Packages() {
+			if strings.HasPrefix(e.ID(), artifact.Module()) {
+				if raw, ok := e.raw.Imports[pkgName]; ok {
+					pkg = parse(raw, ParseTyp|ParseFun)
+					artifact.pkgs.Store(pkgName, pkg)
+					break
+				}
+			}
 		}
-	} else {
-		n := typ.named.NumMethods()
-		for i := 0; i < n; i++ {
-			fObj := typ.named.Method(i)
-			functions = append(functions, function(typ.pkg, fObj))
+		if pkg == nil {
+			return Type{}, false
 		}
 	}
-	return functions
+	return lo.Find(pkg.(*Package).types, func(typ Type) bool {
+		return typ.raw.String() == typName
+	})
 }
 
-func (artifact *Artifact) FunctionsOfType(typeName string) []Function {
-	if typ, ok := lo.Find(artifact.Types(), func(typ Type) bool {
-		return strings.HasSuffix(typ.Name(), typeName)
-	}); ok {
-		return typ.Functions()
-	}
-	return []Function{}
+func (pkg *Package) Raw() *packages.Package {
+	return pkg.raw
 }
 
 func (pkg *Package) ConstantFiles() []string {
 	return pkg.constantsDef
 }
 
-func function(pkg *packages.Package, fObj *types.Func) Function {
-	wf := Function{A: fObj.FullName(), D: pkg.Fset.Position(fObj.Pos()).Filename}
-	signature := fObj.Type().(*types.Signature)
-	if params := signature.Params(); params != nil {
-		for i := params.Len() - 1; i >= 0; i-- {
-			param := params.At(i)
-			wf.B = append(wf.B, Param{A: param.Name(), B: param.Type().String()})
-		}
-	}
-	if rts := signature.Results(); rts != nil {
-		for i := rts.Len() - 1; i >= 0; i-- {
-			rt := rts.At(i)
-			wf.C = append(wf.C, rt.Type().String())
-		}
-	}
-	return wf
-}
-
 func (pkg *Package) Functions() []Function {
-	return lo.Map(pkg.functions, func(f *types.Func, index int) Function {
-		return function(pkg.raw, f)
-	})
+	return pkg.functions
 }
 
 func (pkg *Package) Types() []Type {
@@ -236,14 +213,86 @@ func (pkg *Package) Imports() []string {
 	return lo.Keys(pkg.raw.Imports)
 }
 
+func (pkg *Package) Name() string {
+	return pkg.raw.Name
+}
+
+func (pkg *Package) Path() string {
+	return pkg.raw.PkgPath
+}
+
+func (typ Type) Interface() bool {
+	_, ok := typ.raw.Underlying().(*types.Interface)
+	return ok
+}
+
+func (typ Type) Package() string {
+	return typ.raw.Obj().Pkg().Path()
+}
+
+func (typ Type) Func() bool {
+	panic("not implemented")
+}
+
+func (typ Type) Raw() *types.Named {
+	return typ.raw
+}
+
+func (typ Type) Name() string {
+	return typ.raw.String()
+}
+
+func (typ Type) GoFile() string {
+	return Arch().Package(typ.Package()).raw.Fset.Position(typ.raw.Obj().Pos()).Filename
+}
+
+func (typ Type) Methods() []Function {
+	var functions []Function
+	if typ.Interface() {
+		iTyp := typ.raw.Underlying().(*types.Interface)
+		n := iTyp.NumMethods()
+		for i := 0; i < n; i++ {
+			functions = append(functions, Function{raw: iTyp.Method(i)})
+		}
+	} else {
+		n := typ.raw.NumMethods()
+		for i := 0; i < n; i++ {
+			functions = append(functions, Function{raw: typ.raw.Method(i)})
+		}
+	}
+	return functions
+}
+
 func (f Function) Name() string {
-	return f.A
+	return f.raw.Name()
+}
+
+func (f Function) Package() string {
+	return f.raw.Pkg().Path()
+}
+
+func (f Function) GoFile() string {
+	return Arch().Package(f.Package()).raw.Fset.Position(f.raw.Pos()).Filename
 }
 
 func (f Function) Params() []Param {
-	return f.B
+	var params []Param
+	if tuple := f.raw.Type().(*types.Signature).Params(); tuple != nil {
+		for i := tuple.Len() - 1; i >= 0; i-- {
+			param := tuple.At(i)
+			params = append(params, Param{A: param.Name(), B: param.Type().String()})
+		}
+	}
+	return params
 }
 
-func (f Function) Returns() []string {
-	return f.C
+func (f Function) Returns() []Param {
+	var rt []Param
+	if rs := f.raw.Type().(*types.Signature).Results(); rs != nil {
+		for i := rs.Len() - 1; i >= 0; i-- {
+			param := rs.At(i)
+			rt = append(rt, Param{A: param.Name(), B: param.Type().String()})
+		}
+	}
+	return rt
 }
