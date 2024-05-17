@@ -13,6 +13,14 @@ func LoginHandler(ctx gin.Context) {
 
 }
 
+type EmbeddedGroup struct {
+	gin.RouterGroup
+}
+
+type GroupWithNonEmbedded struct {
+	group gin.RouterGroup
+}
+
 type MyRouterGroup struct{}
 
 func (m MyRouterGroup) Use(handlerFunc ...gin.HandlerFunc) gin.IRoutes {
@@ -96,3 +104,4 @@ func (m MyRouterGroup) Group(s string, handlerFunc ...gin.HandlerFunc) *gin.Rout
 }
 
 var _ gin.IRouter = (*MyRouterGroup)(nil)
+var _ gin.IRouter = (*EmbeddedGroup)(nil)

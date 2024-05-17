@@ -45,6 +45,8 @@ func TestAllTypes(t *testing.T) {
 		"github.com/kcmvp/archunit/internal/sample/repository.FF",
 		"github.com/kcmvp/archunit/internal/sample/repository.UserRepository",
 		"github.com/kcmvp/archunit/internal/sample/controller.MyRouterGroup",
+		"github.com/kcmvp/archunit/internal/sample/controller.EmbeddedGroup",
+		"github.com/kcmvp/archunit/internal/sample/controller.GroupWithNonEmbedded",
 	}
 	assert.ElementsMatch(t, expected, typs)
 }
@@ -71,6 +73,32 @@ func TestTypeImplement(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.interType, func(t *testing.T) {
 			types := lo.Map(TypesImplement(test.interType), func(item internal.Type, _ int) string {
+				return item.Name()
+			})
+			assert.ElementsMatch(t, test.implementation, types)
+		})
+	}
+}
+
+func TestTypesEmbeddedWith(t *testing.T) {
+	tests := []struct {
+		interType      string
+		implementation []string
+	}{
+		{
+			interType: "github.com/gin-gonic/gin.RouterGroup",
+			implementation: []string{
+				"github.com/kcmvp/archunit/internal/sample/controller.EmbeddedGroup",
+			},
+		},
+		{
+			interType:      "github.com/gin-gonic/gin.IRouter",
+			implementation: []string{},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.interType, func(t *testing.T) {
+			types := lo.Map(TypesEmbeddedWith(test.interType), func(item internal.Type, _ int) string {
 				return item.Name()
 			})
 			assert.ElementsMatch(t, test.implementation, types)

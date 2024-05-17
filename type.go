@@ -22,8 +22,33 @@ func AllTypes() Types {
 	return typs
 }
 
-func TypesEmbeddedWith(embeds ...string) Types {
-	panic("to be implemented")
+func TypesEmbeddedWith(embeddedType string) Types {
+	eType, ok := internal.Arch().Type(embeddedType)
+	if !ok {
+		log.Fatalf("can not find interface %s", embeddedType)
+	}
+	var typMap sync.Map
+	lo.ForEach(internal.Arch().Packages(), func(pkg *internal.Package, index int) {
+		if strings.HasPrefix(pkg.ID(), internal.Arch().Module()) &&
+			(pkg.ID() == eType.Package() || lo.Contains(pkg.Imports(), eType.Package())) {
+			lop.ForEach(pkg.Types(), func(typ internal.Type, index int) {
+				if str, ok := typ.Raw().Underlying().(*types.Struct); ok {
+					for i := 0; i < str.NumFields(); i++ {
+						if v := str.Field(i); v.Embedded() && types.Identical(v.Type(), eType.Raw()) {
+							typMap.Store(index, typ)
+						}
+					}
+				}
+			})
+		}
+	})
+	var typs Types
+	typMap.Range(func(_, value any) bool {
+		typs = append(typs, value.(internal.Type))
+		return true
+	})
+	return typs
+
 }
 
 // TypesImplement return all the types implement the interface
@@ -33,20 +58,19 @@ func TypesImplement(interName string) Types {
 		log.Fatalf("can not find interface %s", interName)
 	}
 	var typMap sync.Map
-	lop.ForEach(internal.Arch().Packages(), func(pkg *internal.Package, index int) {
+	lo.ForEach(internal.Arch().Packages(), func(pkg *internal.Package, index int) {
 		if strings.HasPrefix(pkg.ID(), internal.Arch().Module()) &&
 			(pkg.ID() == interType.Package() || lo.Contains(pkg.Imports(), interType.Package())) {
-			implementations := lo.Filter(pkg.Types(), func(typ internal.Type, _ int) bool {
-				return !strings.HasSuffix(typ.Name(), interName) && types.Implements(typ.Raw(), interType.Raw().Underlying().(*types.Interface))
+			lop.ForEach(pkg.Types(), func(typ internal.Type, index int) {
+				if !strings.HasSuffix(typ.Name(), interName) && types.Implements(typ.Raw(), interType.Raw().Underlying().(*types.Interface)) {
+					typMap.Store(index, typ)
+				}
 			})
-			if len(implementations) > 0 {
-				typMap.Store(pkg.ID(), implementations)
-			}
 		}
 	})
 	var typs Types
 	typMap.Range(func(_, value any) bool {
-		typs = append(typs, value.([]internal.Type)...)
+		typs = append(typs, value.(internal.Type))
 		return true
 	})
 	return typs
