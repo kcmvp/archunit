@@ -245,6 +245,7 @@ func (typ Type) Name() string {
 func (typ Type) GoFile() string {
 	return Arch().Package(typ.Package()).raw.Fset.Position(typ.Raw().Obj().Pos()).Filename
 }
+
 func (typ Type) Exported() bool {
 	return typ.raw.Exported()
 }
