@@ -8,7 +8,8 @@ import (
 )
 
 func TestAllTypes(t *testing.T) {
-	typs := lo.Map(AllTypes(), func(item internal.Type, _ int) string {
+	allTypes := ApplicationTypes()
+	typs := lo.Map(allTypes, func(item internal.Type, _ int) string {
 		return item.Name()
 	})
 	expected := []string{
@@ -31,7 +32,7 @@ func TestAllTypes(t *testing.T) {
 		"github.com/kcmvp/archunit.NamePattern",
 		"github.com/kcmvp/archunit.Packages",
 		"github.com/kcmvp/archunit.Types",
-		"github.com/kcmvp/archunit.Visibility",
+		"github.com/kcmvp/archunit.Visible",
 		"github.com/kcmvp/archunit/internal/sample/views.UserView",
 		"github.com/kcmvp/archunit/internal/sample/controller.LoginController",
 		"github.com/kcmvp/archunit/internal/sample/service.Audit",
@@ -49,6 +50,7 @@ func TestAllTypes(t *testing.T) {
 		"github.com/kcmvp/archunit/internal/sample/controller.GroupWithNonEmbedded",
 	}
 	assert.ElementsMatch(t, expected, typs)
+
 }
 
 func TestTypeImplement(t *testing.T) {
@@ -102,6 +104,108 @@ func TestTypesEmbeddedWith(t *testing.T) {
 				return item.Name()
 			})
 			assert.ElementsMatch(t, test.implementation, types)
+		})
+	}
+}
+
+func TestTypes_Skip(t *testing.T) {
+	allTypes := ApplicationTypes()
+	tests := []struct {
+		name      string
+		typeNames []string
+		num       int
+	}{
+		{
+			name:      "skip_internal.Type",
+			typeNames: []string{"github.com/kcmvp/archunit/internal.Type"},
+			num:       34,
+		},
+		{
+			name: "skip_internal.Type_archunit.File",
+			typeNames: []string{
+				"github.com/kcmvp/archunit/internal.Type",
+				"github.com/kcmvp/archunit.File",
+			},
+			num: 33,
+		},
+		{
+			name: "skip_internal.Type_archunit.File_service.Audit",
+			typeNames: []string{
+				"github.com/kcmvp/archunit/internal.Type",
+				"github.com/kcmvp/archunit.File",
+				"github.com/kcmvp/archunit/internal/sample/service.Audit",
+			},
+			num: 32,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			remains := lo.Map(allTypes.Skip(test.typeNames...), func(item internal.Type, _ int) string {
+				return item.Name()
+			})
+			assert.Len(t, remains, test.num)
+			assert.NotContains(t, remains, test.typeNames)
+		})
+	}
+}
+
+func TestTypes_InPackages(t *testing.T) {
+	allTypes := ApplicationTypes()
+	tests := []struct {
+		name string
+		pkgs []string
+		typs []string
+	}{
+		{
+			name: "internal",
+			pkgs: []string{"archunit/internal"},
+			typs: []string{
+				"github.com/kcmvp/archunit/internal.Artifact",
+				"github.com/kcmvp/archunit/internal.Function",
+				"github.com/kcmvp/archunit/internal.Package",
+				"github.com/kcmvp/archunit/internal.Param",
+				"github.com/kcmvp/archunit/internal.ParseMode",
+				"github.com/kcmvp/archunit/internal.Type",
+				"github.com/kcmvp/archunit/internal.Variable",
+			},
+		},
+		{
+			name: "kcmvp/internal",
+			pkgs: []string{"kcmvp/archunit/internal"},
+			typs: []string{
+				"github.com/kcmvp/archunit/internal.Artifact",
+				"github.com/kcmvp/archunit/internal.Function",
+				"github.com/kcmvp/archunit/internal.Package",
+				"github.com/kcmvp/archunit/internal.Param",
+				"github.com/kcmvp/archunit/internal.ParseMode",
+				"github.com/kcmvp/archunit/internal.Type",
+				"github.com/kcmvp/archunit/internal.Variable",
+			},
+		},
+		{
+			name: "kcmvp/internal&controller",
+			pkgs: []string{"archunit/internal", "internal/sample/controller"},
+			typs: []string{
+				"github.com/kcmvp/archunit/internal.Artifact",
+				"github.com/kcmvp/archunit/internal.Function",
+				"github.com/kcmvp/archunit/internal.Package",
+				"github.com/kcmvp/archunit/internal.Param",
+				"github.com/kcmvp/archunit/internal.ParseMode",
+				"github.com/kcmvp/archunit/internal.Type",
+				"github.com/kcmvp/archunit/internal.Variable",
+				"github.com/kcmvp/archunit/internal/sample/controller.EmbeddedGroup",
+				"github.com/kcmvp/archunit/internal/sample/controller.GroupWithNonEmbedded",
+				"github.com/kcmvp/archunit/internal/sample/controller.LoginController",
+				"github.com/kcmvp/archunit/internal/sample/controller.MyRouterGroup",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			typs := allTypes.InPackages(test.pkgs...)
+			assert.ElementsMatch(t, test.typs, lo.Map(typs, func(item internal.Type, _ int) string {
+				return item.Name()
+			}))
 		})
 	}
 }

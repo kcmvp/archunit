@@ -20,7 +20,7 @@ func TestPackages(t *testing.T) {
 			size1: 1,
 		},
 		{
-			name:   "sample and sub Lay",
+			name:   "sample and sub LayerAs",
 			paths:  []string{".../internal/sample/..."},
 			except: []string{".../ext"},
 			size1:  12,
@@ -39,7 +39,7 @@ func TestPackages(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			layer := Lay(test.paths...)
+			layer := LayerAs(test.paths...)
 			assert.Equal(t, test.size1, len(layer.packages()))
 			if len(test.except) > 0 {
 				layer = layer.Exclude(test.except...)
@@ -74,7 +74,7 @@ func TestLayer_Sub(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			layer := Lay(tt.paths...)
+			layer := LayerAs(tt.paths...)
 			assert.Equal(t, tt.size1, len(layer.packages()))
 			layer = layer.Sub(tt.name, tt.sub...)
 			assert.Equal(t, tt.size2, len(layer.packages()))
@@ -95,7 +95,7 @@ func TestConstantsShouldBeDefinedInOneFileByPackage(t *testing.T) {
 }
 
 func TestLayPackages(t *testing.T) {
-	layer := Lay("sample/controller", "sample/controller/...")
+	layer := LayerAs("sample/controller", "sample/controller/...")
 	assert.ElementsMatch(t, []string{"github.com/kcmvp/archunit/internal/sample/controller",
 		"github.com/kcmvp/archunit/internal/sample/controller/module1"}, layer.packages())
 	assert.ElementsMatch(t, layer.Imports(),
@@ -109,10 +109,10 @@ func TestLayPackages(t *testing.T) {
 }
 
 func TestLayer_Refer(t *testing.T) {
-	controller := Lay("sample/controller", "sample/controller/...")
-	model := Lay("sample/model")
-	service := Lay("sample/service", "sample/service/...")
-	repository := Lay("sample/repository", "sample/repository/...")
+	controller := LayerAs("sample/controller", "sample/controller/...")
+	model := LayerAs("sample/model")
+	service := LayerAs("sample/service", "sample/service/...")
+	repository := LayerAs("sample/repository", "sample/repository/...")
 	assert.NoError(t, controller.ShouldNotReferLayers(model))
 	assert.NoError(t, controller.ShouldNotReferPackages("sample/model"))
 	assert.Errorf(t, controller.ShouldNotReferLayers(repository), "controller should not refer repository")

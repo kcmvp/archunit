@@ -7,7 +7,7 @@ import (
 	"log"
 )
 
-type Functions []lo.Tuple2[string, []string]
+type Functions []internal.Function
 
 func FunctionsOfType(fTypName string) Functions {
 	typ, ok := internal.Arch().Type(fTypName)
@@ -56,7 +56,11 @@ func (functions Functions) ShouldBeInPackage(pkgPath ...string) error {
 	panic("to be implemented")
 }
 
-func (functions Functions) ShouldBe(visibility Visibility) error {
+func (functions Functions) ShouldBe(visibility Visible) error {
+	panic("to be implemented")
+}
+
+func (functions Functions) LineOfCodeLessThan(n int) error {
 	panic("to be implemented")
 }
 

@@ -43,7 +43,7 @@ type Function struct {
 }
 
 type Type struct {
-	raw *types.Named
+	raw *types.TypeName
 }
 
 type Variable struct {
@@ -121,8 +121,8 @@ func parse(pkg *packages.Package, mode ParseMode) *Package {
 			}
 		case *types.TypeName:
 			if ParseTyp&mode == ParseTyp {
-				if namedType, ok := vType.Type().(*types.Named); ok {
-					archPkg.types = append(archPkg.types, Type{raw: namedType})
+				if _, ok := vType.Type().(*types.Named); ok {
+					archPkg.types = append(archPkg.types, Type{raw: vType})
 				}
 			}
 		case *types.Var:
@@ -181,7 +181,7 @@ func (artifact *Artifact) Type(typName string) (Type, bool) {
 		}
 	}
 	return lo.Find(pkg.(*Package).types, func(typ Type) bool {
-		return typ.raw.String() == typName
+		return typ.Raw().String() == typName
 	})
 }
 
@@ -222,12 +222,12 @@ func (pkg *Package) Path() string {
 }
 
 func (typ Type) Interface() bool {
-	_, ok := typ.raw.Underlying().(*types.Interface)
+	_, ok := typ.Raw().Underlying().(*types.Interface)
 	return ok
 }
 
 func (typ Type) Package() string {
-	return typ.raw.Obj().Pkg().Path()
+	return typ.Raw().Obj().Pkg().Path()
 }
 
 func (typ Type) Func() bool {
@@ -235,29 +235,32 @@ func (typ Type) Func() bool {
 }
 
 func (typ Type) Raw() *types.Named {
-	return typ.raw
+	return typ.raw.Type().(*types.Named)
 }
 
 func (typ Type) Name() string {
-	return typ.raw.String()
+	return typ.Raw().String()
 }
 
 func (typ Type) GoFile() string {
-	return Arch().Package(typ.Package()).raw.Fset.Position(typ.raw.Obj().Pos()).Filename
+	return Arch().Package(typ.Package()).raw.Fset.Position(typ.Raw().Obj().Pos()).Filename
+}
+func (typ Type) Exported() bool {
+	return typ.raw.Exported()
 }
 
 func (typ Type) Methods() []Function {
 	var functions []Function
 	if typ.Interface() {
-		iTyp := typ.raw.Underlying().(*types.Interface)
+		iTyp := typ.Raw().Underlying().(*types.Interface)
 		n := iTyp.NumMethods()
 		for i := 0; i < n; i++ {
 			functions = append(functions, Function{raw: iTyp.Method(i)})
 		}
 	} else {
-		n := typ.raw.NumMethods()
+		n := typ.Raw().NumMethods()
 		for i := 0; i < n; i++ {
-			functions = append(functions, Function{raw: typ.raw.Method(i)})
+			functions = append(functions, Function{raw: typ.Raw().Method(i)})
 		}
 	}
 	return functions
