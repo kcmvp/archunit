@@ -8,7 +8,7 @@ import (
 )
 
 func TestAllTypes(t *testing.T) {
-	allTypes := ApplicationTypes()
+	allTypes := AppTypes()
 	typs := lo.Map(allTypes, func(item internal.Type, _ int) string {
 		return item.Name()
 	})
@@ -48,9 +48,9 @@ func TestAllTypes(t *testing.T) {
 		"github.com/kcmvp/archunit/internal/sample/controller.MyRouterGroup",
 		"github.com/kcmvp/archunit/internal/sample/controller.EmbeddedGroup",
 		"github.com/kcmvp/archunit/internal/sample/controller.GroupWithNonEmbedded",
+		"github.com/kcmvp/archunit/internal/sample/controller.CustomizeHandler",
 	}
 	assert.ElementsMatch(t, expected, typs)
-
 }
 
 func TestTypeImplement(t *testing.T) {
@@ -109,7 +109,7 @@ func TestTypesEmbeddedWith(t *testing.T) {
 }
 
 func TestTypes_Skip(t *testing.T) {
-	allTypes := ApplicationTypes()
+	allTypes := AppTypes()
 	tests := []struct {
 		name      string
 		typeNames []string
@@ -118,7 +118,7 @@ func TestTypes_Skip(t *testing.T) {
 		{
 			name:      "skip_internal.Type",
 			typeNames: []string{"github.com/kcmvp/archunit/internal.Type"},
-			num:       34,
+			num:       35,
 		},
 		{
 			name: "skip_internal.Type_archunit.File",
@@ -126,7 +126,7 @@ func TestTypes_Skip(t *testing.T) {
 				"github.com/kcmvp/archunit/internal.Type",
 				"github.com/kcmvp/archunit.File",
 			},
-			num: 33,
+			num: 34,
 		},
 		{
 			name: "skip_internal.Type_archunit.File_service.Audit",
@@ -135,7 +135,7 @@ func TestTypes_Skip(t *testing.T) {
 				"github.com/kcmvp/archunit.File",
 				"github.com/kcmvp/archunit/internal/sample/service.Audit",
 			},
-			num: 32,
+			num: 33,
 		},
 	}
 	for _, test := range tests {
@@ -150,7 +150,7 @@ func TestTypes_Skip(t *testing.T) {
 }
 
 func TestTypes_InPackages(t *testing.T) {
-	allTypes := ApplicationTypes()
+	allTypes := AppTypes()
 	tests := []struct {
 		name string
 		pkgs []string
@@ -197,6 +197,7 @@ func TestTypes_InPackages(t *testing.T) {
 				"github.com/kcmvp/archunit/internal/sample/controller.GroupWithNonEmbedded",
 				"github.com/kcmvp/archunit/internal/sample/controller.LoginController",
 				"github.com/kcmvp/archunit/internal/sample/controller.MyRouterGroup",
+				"github.com/kcmvp/archunit/internal/sample/controller.CustomizeHandler",
 			},
 		},
 	}

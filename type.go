@@ -14,8 +14,8 @@ import (
 
 type Types []internal.Type
 
-// ApplicationTypes return all the types defined in the project
-func ApplicationTypes() Types {
+// AppTypes return all the types defined in the project
+func AppTypes() Types {
 	var typs Types
 	for _, pkg := range internal.Arch().Packages() {
 		if strings.HasPrefix(pkg.ID(), internal.Arch().Module()) {
@@ -84,14 +84,14 @@ func TypesImplement(interName string) Types {
 }
 
 // Skip  filter out the specified types
-func (typs Types) Skip(typNames ...string) Types {
-	return lo.Filter(typs, func(typ internal.Type, _ int) bool {
+func (types Types) Skip(typNames ...string) Types {
+	return lo.Filter(types, func(typ internal.Type, _ int) bool {
 		return !lo.Contains(typNames, typ.Name())
 	})
 }
 
 // EmbeddedWith return types that embed the specified types
-func (typs Types) EmbeddedWith(embedTyps ...string) Types {
+func (types Types) EmbeddedWith(embedTyps ...string) Types {
 	embedded := lo.Map(embedTyps, func(typName string, _ int) internal.Type {
 		t, ok := internal.Arch().Type(typName)
 		if !ok {
@@ -99,12 +99,12 @@ func (typs Types) EmbeddedWith(embedTyps ...string) Types {
 		}
 		return t
 	})
-	return lo.Filter(typs, func(typ internal.Type, _ int) bool {
+	return lo.Filter(types, func(typ internal.Type, _ int) bool {
 		return lo.Contains(embedded, typ)
 	})
 }
 
-func (typs Types) Implement(interTyps ...string) Types {
+func (types Types) Implement(interTyps ...string) Types {
 	inters := lo.Map(interTyps, func(typName string, _ int) internal.Type {
 		t, ok := internal.Arch().Type(typName)
 		if !ok {
@@ -112,14 +112,14 @@ func (typs Types) Implement(interTyps ...string) Types {
 		}
 		return t
 	})
-	return lo.Filter(typs, func(typ internal.Type, _ int) bool {
+	return lo.Filter(types, func(typ internal.Type, _ int) bool {
 		return lo.Contains(inters, typ)
 	})
 }
 
 // InPackages return types in the specified packages
-func (typs Types) InPackages(paths ...string) Types {
-	return lo.Filter(typs, func(typ internal.Type, _ int) bool {
+func (types Types) InPackages(paths ...string) Types {
+	return lo.Filter(types, func(typ internal.Type, _ int) bool {
 		return lo.ContainsBy(paths, func(path string) bool {
 			return strings.HasSuffix(typ.Package(), path)
 		})
@@ -127,19 +127,19 @@ func (typs Types) InPackages(paths ...string) Types {
 }
 
 // Methods return all the methods of the types
-func (typs Types) Methods() Functions {
+func (types Types) Methods() Functions {
 	var functions Functions
-	lop.ForEach(typs, func(typ internal.Type, _ int) {
+	lop.ForEach(types, func(typ internal.Type, _ int) {
 		functions = append(functions, typ.Methods()...)
 	})
 	return functions
 }
 
-func (typs Types) Files() Files {
+func (types Types) Files() Files {
 	panic("")
 }
 
-func (typs Types) MethodShouldBeDefinedInOneFile() error {
+func (types Types) MethodShouldBeDefinedInOneFile() error {
 	for _, pkg := range internal.Arch().Packages() {
 		for _, typ := range pkg.Types() {
 			files := lo.Uniq(lo.Map(typ.Methods(), func(f internal.Function, _ int) string {
@@ -154,8 +154,8 @@ func (typs Types) MethodShouldBeDefinedInOneFile() error {
 }
 
 // ShouldBe check the types' visibility. return an error when any type is not the specified Visible
-func (typs Types) ShouldBe(visible Visible) error {
-	if t, ok := lo.Find(typs, func(typ internal.Type) bool {
+func (types Types) ShouldBe(visible Visible) error {
+	if t, ok := lo.Find(types, func(typ internal.Type) bool {
 		return visible != lo.If(typ.Exported(), Public).Else(Private)
 	}); ok {
 		return fmt.Errorf("type %s is %s", t.Name(), lo.If(t.Exported(), "public").Else("private"))
@@ -163,8 +163,8 @@ func (typs Types) ShouldBe(visible Visible) error {
 	return nil
 }
 
-func (typs Types) ShouldBeInPackages(pkgs ...string) error {
-	if t, ok := lo.Find(typs, func(typ internal.Type) bool {
+func (types Types) ShouldBeInPackages(pkgs ...string) error {
+	if t, ok := lo.Find(types, func(typ internal.Type) bool {
 		return !lo.Contains(pkgs, typ.Package())
 	}); ok {
 		return fmt.Errorf("type is %s in %s", t.Name(), t.Package())
@@ -172,8 +172,8 @@ func (typs Types) ShouldBeInPackages(pkgs ...string) error {
 	return nil
 }
 
-func (typs Types) NameShould(pattern NamePattern, args ...string) error {
-	if t, ok := lo.Find(typs, func(typ internal.Type) bool {
+func (types Types) NameShould(pattern NamePattern, args ...string) error {
+	if t, ok := lo.Find(types, func(typ internal.Type) bool {
 		return !pattern(typ.Name(), lo.If(args == nil, "").ElseF(func() string {
 			return args[0]
 		}))

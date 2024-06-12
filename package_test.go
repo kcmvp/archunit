@@ -7,7 +7,7 @@ import (
 )
 
 func TestPackages_NameShouldBeSameAsFolder(t *testing.T) {
-	pkgs := ApplicationPackages()
+	pkgs := AppPackages()
 	assert.Equal(t, 15, len(pkgs))
 	err := pkgs.NameShouldBeSameAsFolder()
 	assert.Error(t, err)
@@ -21,8 +21,8 @@ func TestPackages_NameShouldBeSameAsFolder(t *testing.T) {
 }
 
 func TestPackageNameShould(t *testing.T) {
-	err := ApplicationPackages().NameShould(BeLowerCase)
+	err := AppPackages().NameShould(BeLowerCase)
 	assert.NoError(t, err)
-	err = ApplicationPackages().NameShould((BeUpperCase))
+	err = AppPackages().NameShould((BeUpperCase))
 	assert.Error(t, err)
 }

@@ -11,7 +11,7 @@ type Functions []internal.Function
 
 func FunctionsOfType(fTypName string) Functions {
 	typ, ok := internal.Arch().Type(fTypName)
-	if !ok || !typ.Func() {
+	if !ok || !typ.FuncType() {
 		log.Fatalf("can not find function type %s", fTypName)
 	}
 	lo.ForEach(lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {

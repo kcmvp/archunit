@@ -181,7 +181,7 @@ func (artifact *Artifact) Type(typName string) (Type, bool) {
 		}
 	}
 	return lo.Find(pkg.(*Package).types, func(typ Type) bool {
-		return typ.Raw().String() == typName
+		return typ.Name() == typName
 	})
 }
 
@@ -230,8 +230,9 @@ func (typ Type) Package() string {
 	return typ.Raw().Obj().Pkg().Path()
 }
 
-func (typ Type) Func() bool {
-	panic("not implemented")
+func (typ Type) FuncType() bool {
+	_, ok := typ.raw.Type().Underlying().(*types.Signature)
+	return ok
 }
 
 func (typ Type) Raw() *types.Named {

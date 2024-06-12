@@ -10,11 +10,13 @@ import (
 
 type Packages []*internal.Package
 
-func ApplicationPackages() Packages {
-	return internal.Arch().Packages()
+func AppPackages() Packages {
+	return lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
+		return strings.HasPrefix(pkg.ID(), internal.Arch().Module())
+	})
 }
 
-func PackagesWith(paths ...string) Packages {
+func PackageByPath(paths ...string) Packages {
 	panic("not implemented")
 }
 

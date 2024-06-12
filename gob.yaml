@@ -9,7 +9,7 @@ plugins:
     golangci-lint:
         alias: lint
         args: run ./...
-        url: github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55.2
+        url: github.com/golangci/golangci-lint/cmd/golangci-lint@v1.58.2
     gotestsum:
         alias: test
         args: --format testname -- -coverprofile=target/cover.out ./...
