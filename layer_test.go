@@ -1,6 +1,8 @@
 package archunit
 
 import (
+	"github.com/kcmvp/archunit/internal"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
@@ -20,7 +22,7 @@ func TestPackages(t *testing.T) {
 			size1: 1,
 		},
 		{
-			name:   "sample and sub LayerAs",
+			name:   "sample and sub LayerByPath",
 			paths:  []string{".../internal/sample/..."},
 			except: []string{".../ext"},
 			size1:  12,
@@ -39,7 +41,7 @@ func TestPackages(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			layer := LayerAs(test.paths...)
+			layer := LayerByPath(test.paths...)
 			assert.Equal(t, test.size1, len(layer.packages()))
 			if len(test.except) > 0 {
 				layer = layer.Exclude(test.except...)
@@ -74,7 +76,7 @@ func TestLayer_Sub(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			layer := LayerAs(tt.paths...)
+			layer := LayerByPath(tt.paths...)
 			assert.Equal(t, tt.size1, len(layer.packages()))
 			layer = layer.Sub(tt.name, tt.sub...)
 			assert.Equal(t, tt.size2, len(layer.packages()))
@@ -95,7 +97,7 @@ func TestConstantsShouldBeDefinedInOneFileByPackage(t *testing.T) {
 }
 
 func TestLayPackages(t *testing.T) {
-	layer := LayerAs("sample/controller", "sample/controller/...")
+	layer := LayerByPath("sample/controller", "sample/controller/...")
 	assert.ElementsMatch(t, []string{"github.com/kcmvp/archunit/internal/sample/controller",
 		"github.com/kcmvp/archunit/internal/sample/controller/module1"}, layer.packages())
 	assert.ElementsMatch(t, layer.Imports(),
@@ -109,10 +111,10 @@ func TestLayPackages(t *testing.T) {
 }
 
 func TestLayer_Refer(t *testing.T) {
-	controller := LayerAs("sample/controller", "sample/controller/...")
-	model := LayerAs("sample/model")
-	service := LayerAs("sample/service", "sample/service/...")
-	repository := LayerAs("sample/repository", "sample/repository/...")
+	controller := LayerByPath("sample/controller", "sample/controller/...")
+	model := LayerByPath("sample/model")
+	service := LayerByPath("sample/service", "sample/service/...")
+	repository := LayerByPath("sample/repository", "sample/repository/...")
 	assert.NoError(t, controller.ShouldNotReferLayers(model))
 	assert.NoError(t, controller.ShouldNotReferPackages("sample/model"))
 	assert.Errorf(t, controller.ShouldNotReferLayers(repository), "controller should not refer repository")
@@ -121,4 +123,19 @@ func TestLayer_Refer(t *testing.T) {
 	assert.NoError(t, repository.ShouldOnlyReferPackages("sample/model"), "repository should not refer model")
 	assert.NoError(t, model.ShouldBeOnlyReferredByLayers(repository), "model should be only referred repository")
 	assert.Error(t, repository.ShouldBeOnlyReferredByLayers(service), "repository is referenced by controller")
+	assert.ElementsMatch(t, controller.packages(), []string{"github.com/kcmvp/archunit/internal/sample/controller",
+		"github.com/kcmvp/archunit/internal/sample/controller/module1"})
+	assert.ElementsMatch(t, lo.Map(controller.Types(), func(typ internal.Type, index int) string {
+		return typ.Name()
+	}), []string{
+		"github.com/kcmvp/archunit/internal/sample/controller.CustomizeHandler",
+		"github.com/kcmvp/archunit/internal/sample/controller.EmbeddedGroup",
+		"github.com/kcmvp/archunit/internal/sample/controller.GroupWithNonEmbedded",
+		"github.com/kcmvp/archunit/internal/sample/controller.LoginController",
+		"github.com/kcmvp/archunit/internal/sample/controller.MyRouterGroup",
+		"github.com/kcmvp/archunit/internal/sample/controller/module1.AppController",
+	})
+	assert.ElementsMatch(t, lo.Map(controller.Functions(), func(item internal.Function, index int) string {
+		return item.Name()
+	}), []string{"LoginHandler"})
 }

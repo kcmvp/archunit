@@ -56,7 +56,7 @@ func ConstantsShouldBeDefinedInOneFileByPackage() error {
 	return nil
 }
 
-func LayerAs(pkgPaths ...string) Layer {
+func LayerByPath(pkgPaths ...string) Layer {
 	patterns := lo.Map(pkgPaths, func(path string, _ int) *regexp.Regexp {
 		reg, err := internal.PkgPattern(path)
 		if err != nil {
@@ -117,11 +117,15 @@ func (layer Layer) Sub(name string, paths ...string) Layer {
 }
 
 func (layer Layer) Packages() Packages {
-	panic("@todo")
+	return Packages(layer)
 }
 
 func (layer Layer) Functions() Functions {
-	panic("@todo")
+	var fs Functions
+	lo.ForEach(layer, func(pkg *internal.Package, _ int) {
+		fs = append(fs, pkg.Functions()...)
+	})
+	return fs
 }
 
 func (layer Layer) packages() []string {
@@ -150,7 +154,7 @@ func (layer Layer) ShouldNotReferLayers(layers ...Layer) error {
 }
 
 func (layer Layer) ShouldNotReferPackages(paths ...string) error {
-	return layer.ShouldNotReferLayers(LayerAs(paths...))
+	return layer.ShouldNotReferLayers(LayerByPath(paths...))
 }
 
 func (layer Layer) ShouldOnlyReferLayers(layers ...Layer) error {
@@ -165,7 +169,7 @@ func (layer Layer) ShouldOnlyReferLayers(layers ...Layer) error {
 }
 
 func (layer Layer) ShouldOnlyReferPackages(paths ...string) error {
-	return layer.ShouldOnlyReferLayers(LayerAs(paths...))
+	return layer.ShouldOnlyReferLayers(LayerByPath(paths...))
 }
 
 func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
@@ -189,7 +193,7 @@ func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
 }
 
 func (layer Layer) ShouldBeOnlyReferredByPackages(paths ...string) error {
-	layer1 := LayerAs(paths...)
+	layer1 := LayerByPath(paths...)
 	return layer.ShouldBeOnlyReferredByLayers(layer1)
 }
 
@@ -204,7 +208,11 @@ func (layer Layer) DepthShouldLessThan(depth int) error {
 }
 
 func (layer Layer) Types() Types {
-	panic("to be implemented")
+	var ts Types
+	lo.ForEach(layer, func(pkg *internal.Package, _ int) {
+		ts = append(ts, pkg.Types()...)
+	})
+	return ts
 }
 
 func (layer Layer) Files() Files {

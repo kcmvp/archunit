@@ -130,7 +130,7 @@ func TestPackage_Functions(t *testing.T) {
 				"FunctionsOfType",
 				"HavePrefix",
 				"HaveSuffix",
-				"LayerAs",
+				"LayerByPath",
 				"AppTypes",
 				"AppPackages",
 				"SourceNameShould",
