@@ -14,14 +14,22 @@ import (
 
 type Types []internal.Type
 
-func AllTypes() Types {
+// AppTypes return all the types defined in the project
+func AppTypes() Types {
 	var typs Types
 	for _, pkg := range internal.Arch().Packages() {
-		typs = append(typs, pkg.Types()...)
+		if strings.HasPrefix(pkg.ID(), internal.Arch().Module()) {
+			typs = append(typs, pkg.Types()...)
+		}
 	}
 	return typs
 }
 
+func TypesWith(typeNames ...string) Types {
+	panic("")
+}
+
+// TypesEmbeddedWith returns all the types that embed the specified type
 func TypesEmbeddedWith(embeddedType string) Types {
 	eType, ok := internal.Arch().Type(embeddedType)
 	if !ok {
@@ -48,7 +56,6 @@ func TypesEmbeddedWith(embeddedType string) Types {
 		return true
 	})
 	return typs
-
 }
 
 // TypesImplement return all the types implement the interface
@@ -76,27 +83,63 @@ func TypesImplement(interName string) Types {
 	return typs
 }
 
-func (typs Types) Skip(names ...string) Types {
-	panic("to be implemented")
+// Skip  filter out the specified types
+func (types Types) Skip(typNames ...string) Types {
+	return lo.Filter(types, func(typ internal.Type, _ int) bool {
+		return !lo.Contains(typNames, typ.Name())
+	})
 }
 
-func (typs Types) EmbeddedWith(embeds ...string) Types {
-	panic("to be implemented")
+// EmbeddedWith return types that embed the specified types
+func (types Types) EmbeddedWith(embedTyps ...string) Types {
+	embedded := lo.Map(embedTyps, func(typName string, _ int) internal.Type {
+		t, ok := internal.Arch().Type(typName)
+		if !ok {
+			log.Fatalf("can not find type %s", typName)
+		}
+		return t
+	})
+	return lo.Filter(types, func(typ internal.Type, _ int) bool {
+		return lo.Contains(embedded, typ)
+	})
 }
 
-func (typs Types) Implement(inters ...string) Types {
-	panic("to be implemented")
+func (types Types) Implement(interTyps ...string) Types {
+	inters := lo.Map(interTyps, func(typName string, _ int) internal.Type {
+		t, ok := internal.Arch().Type(typName)
+		if !ok {
+			log.Fatalf("can not find type %s", typName)
+		}
+		return t
+	})
+	return lo.Filter(types, func(typ internal.Type, _ int) bool {
+		return lo.Contains(inters, typ)
+	})
 }
 
-func (typs Types) InPackage(paths ...string) Types {
-	panic("to be implemented")
+// InPackages return types in the specified packages
+func (types Types) InPackages(paths ...string) Types {
+	return lo.Filter(types, func(typ internal.Type, _ int) bool {
+		return lo.ContainsBy(paths, func(path string) bool {
+			return strings.HasSuffix(typ.Package(), path)
+		})
+	})
 }
 
-func (typs Types) Functions() []Functions {
-	panic("to be implemented")
+// Methods return all the methods of the types
+func (types Types) Methods() Functions {
+	var functions Functions
+	lop.ForEach(types, func(typ internal.Type, _ int) {
+		functions = append(functions, typ.Methods()...)
+	})
+	return functions
 }
 
-func (typs Types) ShouldBeDefinedInSameFile() error {
+func (types Types) Files() Files {
+	panic("")
+}
+
+func (types Types) MethodShouldBeDefinedInOneFile() error {
 	for _, pkg := range internal.Arch().Packages() {
 		for _, typ := range pkg.Types() {
 			files := lo.Uniq(lo.Map(typ.Methods(), func(f internal.Function, _ int) string {
@@ -110,14 +153,32 @@ func (typs Types) ShouldBeDefinedInSameFile() error {
 	return nil
 }
 
-func (typs Types) ShouldBe(visibility Visibility) error {
-	panic("to be implemented")
+// ShouldBe check the types' visibility. return an error when any type is not the specified Visible
+func (types Types) ShouldBe(visible Visible) error {
+	if t, ok := lo.Find(types, func(typ internal.Type) bool {
+		return visible != lo.If(typ.Exported(), Public).Else(Private)
+	}); ok {
+		return fmt.Errorf("type %s is %s", t.Name(), lo.If(t.Exported(), "public").Else("private"))
+	}
+	return nil
 }
 
-func (typs Types) ShouldBeInPackages(pkgs ...string) error {
-	panic("to be implemented")
+func (types Types) ShouldBeInPackages(pkgs ...string) error {
+	if t, ok := lo.Find(types, func(typ internal.Type) bool {
+		return !lo.Contains(pkgs, typ.Package())
+	}); ok {
+		return fmt.Errorf("type is %s in %s", t.Name(), t.Package())
+	}
+	return nil
 }
 
-func (typs Types) NameShould(pattern NamePattern) error {
-	panic("to be implemented")
+func (types Types) NameShould(pattern NamePattern, args ...string) error {
+	if t, ok := lo.Find(types, func(typ internal.Type) bool {
+		return !pattern(typ.Name(), lo.If(args == nil, "").ElseF(func() string {
+			return args[0]
+		}))
+	}); ok {
+		return fmt.Errorf("Type %s faild to pass naming checking", t.Name())
+	}
+	return nil
 }

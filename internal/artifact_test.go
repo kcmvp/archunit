@@ -130,12 +130,14 @@ func TestPackage_Functions(t *testing.T) {
 				"FunctionsOfType",
 				"HavePrefix",
 				"HaveSuffix",
-				"Lay",
-				"AllTypes",
-				"AllPackages",
+				"LayerByPath",
+				"AppTypes",
+				"AppPackages",
 				"SourceNameShould",
 				"TypesEmbeddedWith",
 				"TypesImplement",
+				"TypesWith",
+				"PackageByPath",
 			},
 			imports: []string{
 				"fmt",
@@ -341,4 +343,39 @@ func TestPkgTypes(t *testing.T) {
 func TestArtifact(t *testing.T) {
 	assert.NotEmpty(t, Arch().RootDir())
 	assert.Equal(t, "github.com/kcmvp/archunit", Arch().Module())
+}
+
+func TestArchType(t *testing.T) {
+	size := len(arch.Packages())
+	typ, ok := Arch().Type("github.com/samber/lo.Entry[K comparable, V any]")
+	assert.True(t, ok)
+	assert.Equal(t, "github.com/samber/lo.Entry[K comparable, V any]", typ.Name())
+	assert.True(t, len(arch.Packages()) > size)
+}
+
+func TestArchFuncType(t *testing.T) {
+	tests := []struct {
+		name string
+		typ  string
+		exp  bool
+	}{
+		{
+			name: "valid",
+			typ:  "internal/sample/controller.CustomizeHandler",
+			exp:  true,
+		},
+		{
+			name: "invalid",
+			typ:  "internal/sample/controller.EmbeddedGroup",
+			exp:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			typ, ok := Arch().Type(test.typ)
+			assert.True(t, ok)
+			assert.Equal(t, test.exp, typ.FuncType())
+		})
+	}
 }

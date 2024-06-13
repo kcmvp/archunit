@@ -7,6 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type CustomizeHandler func(c *gin.Context) error
+
 var SayHello gin.HandlerFunc = func(c *gin.Context) {}
 
 func LoginHandler(ctx gin.Context) {

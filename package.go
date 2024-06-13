@@ -10,8 +10,14 @@ import (
 
 type Packages []*internal.Package
 
-func AllPackages() Packages {
-	return internal.Arch().Packages()
+func AppPackages() Packages {
+	return lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
+		return strings.HasPrefix(pkg.ID(), internal.Arch().Module())
+	})
+}
+
+func PackageByPath(paths ...string) Packages {
+	panic("not implemented")
 }
 
 func (pkgs Packages) Paths() []string {
@@ -26,6 +32,18 @@ func (pkgs Packages) Skip(paths ...string) Packages {
 			return strings.HasSuffix(pkg.Path(), path)
 		})
 	})
+}
+
+func (pkgs Packages) Types() Types {
+	panic("@todo")
+}
+
+func (pkgs Packages) Functions() Functions {
+	panic("@todo")
+}
+
+func (pkgs Packages) Files() Files {
+	panic("@todo")
 }
 
 func (pkgs Packages) NameShouldBeSameAsFolder() error {
