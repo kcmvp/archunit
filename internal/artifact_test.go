@@ -104,6 +104,7 @@ func TestPackage_Functions(t *testing.T) {
 			funcs: []string{
 				"Arch",
 				"PkgPattern",
+				"PkgPatters",
 				"parse",
 			},
 			imports: []string{
@@ -132,12 +133,12 @@ func TestPackage_Functions(t *testing.T) {
 				"HaveSuffix",
 				"LayerByPath",
 				"AppTypes",
-				"AppPackages",
 				"SourceNameShould",
 				"TypesEmbeddedWith",
 				"TypesImplement",
 				"TypesWith",
-				"PackageByPath",
+				"Package",
+				"AllPackages",
 			},
 			imports: []string{
 				"fmt",
@@ -346,11 +347,11 @@ func TestArtifact(t *testing.T) {
 }
 
 func TestArchType(t *testing.T) {
-	size := len(arch.Packages())
+	size := len(Arch().Packages(false))
 	typ, ok := Arch().Type("github.com/samber/lo.Entry[K comparable, V any]")
 	assert.True(t, ok)
 	assert.Equal(t, "github.com/samber/lo.Entry[K comparable, V any]", typ.Name())
-	assert.True(t, len(arch.Packages()) > size)
+	assert.True(t, len(Arch().Packages(false)) > size)
 }
 
 func TestArchFuncType(t *testing.T) {

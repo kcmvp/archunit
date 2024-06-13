@@ -25,8 +25,8 @@ func TestAllTypes(t *testing.T) {
 		"github.com/kcmvp/archunit/internal/sample/service/ext.Cross",
 		"github.com/kcmvp/archunit/internal/sample/model.User",
 		"github.com/kcmvp/archunit/internal/sample/vutil.ViewUtil",
-		"github.com/kcmvp/archunit.File",
-		"github.com/kcmvp/archunit.Files",
+		"github.com/kcmvp/archunit.PkgFile",
+		"github.com/kcmvp/archunit.FileSet",
 		"github.com/kcmvp/archunit.Functions",
 		"github.com/kcmvp/archunit.Layer",
 		"github.com/kcmvp/archunit.NamePattern",
@@ -121,10 +121,10 @@ func TestTypes_Skip(t *testing.T) {
 			num:       35,
 		},
 		{
-			name: "skip_internal.Type_archunit.File",
+			name: "skip_internal.Type_archunit.PkgFile",
 			typeNames: []string{
 				"github.com/kcmvp/archunit/internal.Type",
-				"github.com/kcmvp/archunit.File",
+				"github.com/kcmvp/archunit.PkgFile",
 			},
 			num: 34,
 		},
@@ -132,7 +132,7 @@ func TestTypes_Skip(t *testing.T) {
 			name: "skip_internal.Type_archunit.File_service.Audit",
 			typeNames: []string{
 				"github.com/kcmvp/archunit/internal.Type",
-				"github.com/kcmvp/archunit.File",
+				"github.com/kcmvp/archunit.PkgFile",
 				"github.com/kcmvp/archunit/internal/sample/service.Audit",
 			},
 			num: 33,

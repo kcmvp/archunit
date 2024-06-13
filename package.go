@@ -5,19 +5,23 @@ import (
 	"fmt"
 	"github.com/kcmvp/archunit/internal"
 	"github.com/samber/lo"
+	"regexp"
 	"strings"
 )
 
 type Packages []*internal.Package
 
-func AppPackages() Packages {
-	return lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
-		return strings.HasPrefix(pkg.ID(), internal.Arch().Module())
-	})
+func AllPackages() Packages {
+	return internal.Arch().Packages()
 }
 
-func PackageByPath(paths ...string) Packages {
-	panic("not implemented")
+func Package(paths ...string) Packages {
+	patterns := internal.PkgPatters(paths...)
+	return lo.Filter(AllPackages(), func(pkg *internal.Package, _ int) bool {
+		return lo.ContainsBy(patterns, func(pattern *regexp.Regexp) bool {
+			return pattern.MatchString(pkg.ID())
+		})
+	})
 }
 
 func (pkgs Packages) Paths() []string {
@@ -35,15 +39,27 @@ func (pkgs Packages) Skip(paths ...string) Packages {
 }
 
 func (pkgs Packages) Types() Types {
-	panic("@todo")
+	var types Types
+	lo.ForEach(pkgs, func(pkg *internal.Package, _ int) {
+		types = append(types, pkg.Types()...)
+	})
+	return types
 }
 
 func (pkgs Packages) Functions() Functions {
-	panic("@todo")
+	var functions Functions
+	lo.ForEach(pkgs, func(pkg *internal.Package, _ int) {
+		functions = append(functions, pkg.Functions()...)
+	})
+	return functions
 }
 
-func (pkgs Packages) Files() Files {
-	panic("@todo")
+func (pkgs Packages) FileSet() FileSet {
+	var files []PkgFile
+	lo.ForEach(pkgs, func(pkg *internal.Package, _ int) {
+		files = append(files, PkgFile{A: pkg.ID(), B: pkg.Raw().GoFiles})
+	})
+	return files
 }
 
 func (pkgs Packages) NameShouldBeSameAsFolder() error {
@@ -64,10 +80,10 @@ func (pkgs Packages) NameShould(pattern NamePattern, args ...string) error {
 	return nil
 }
 
-func (pkgs Packages) ShouldNotRefer(pkgPaths ...string) error {
+func (pkgs Packages) ShouldNotRefer(paths ...string) error {
 	panic("implement me")
 }
 
-func (pkgs Packages) ShouldBeOnlyReferredBy(pkgPaths ...string) error {
+func (pkgs Packages) ShouldBeOnlyReferredBy(paths ...string) error {
 	panic("implement me")
 }

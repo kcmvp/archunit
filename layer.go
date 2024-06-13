@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/kcmvp/archunit/internal"
 	"github.com/samber/lo"
-	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -57,13 +56,7 @@ func ConstantsShouldBeDefinedInOneFileByPackage() error {
 }
 
 func LayerByPath(pkgPaths ...string) Layer {
-	patterns := lo.Map(pkgPaths, func(path string, _ int) *regexp.Regexp {
-		reg, err := internal.PkgPattern(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return reg
-	})
+	patterns := internal.PkgPatters(pkgPaths...)
 	return lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
 		return lo.ContainsBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
@@ -87,13 +80,7 @@ func (layer Layer) Name() string {
 }
 
 func (layer Layer) Exclude(pkgPaths ...string) Layer {
-	patterns := lo.Map(pkgPaths, func(path string, _ int) *regexp.Regexp {
-		reg, err := internal.PkgPattern(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return reg
-	})
+	patterns := internal.PkgPatters(pkgPaths...)
 	return lo.Filter(layer, func(pkg *internal.Package, _ int) bool {
 		return lo.NoneBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
@@ -102,13 +89,7 @@ func (layer Layer) Exclude(pkgPaths ...string) Layer {
 }
 
 func (layer Layer) Sub(name string, paths ...string) Layer {
-	patterns := lo.Map(paths, func(path string, _ int) *regexp.Regexp {
-		reg, err := internal.PkgPattern(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return reg
-	})
+	patterns := internal.PkgPatters(paths...)
 	return lo.Filter(layer, func(pkg *internal.Package, _ int) bool {
 		return lo.SomeBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
@@ -215,26 +196,20 @@ func (layer Layer) Types() Types {
 	return ts
 }
 
-func (layer Layer) Files() Files {
-	return lo.Map(layer, func(pkg *internal.Package, _ int) File {
-		return File{A: pkg.ID(), B: pkg.GoFiles()}
+func (layer Layer) FileSet() FileSet {
+	return lo.Map(layer, func(pkg *internal.Package, _ int) PkgFile {
+		return PkgFile{A: pkg.ID(), B: pkg.GoFiles()}
 	})
 }
 
-func (layer Layer) FilesInPackages(paths ...string) Files {
-	patterns := lo.Map(paths, func(path string, _ int) *regexp.Regexp {
-		reg, err := internal.PkgPattern(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return reg
-	})
-	return lo.FilterMap(layer, func(pkg *internal.Package, _ int) (File, bool) {
+func (layer Layer) FilesInPackages(paths ...string) FileSet {
+	patterns := internal.PkgPatters(paths...)
+	return lo.FilterMap(layer, func(pkg *internal.Package, _ int) (PkgFile, bool) {
 		if lo.SomeBy(patterns, func(reg *regexp.Regexp) bool {
 			return reg.MatchString(pkg.ID())
 		}) {
-			return File{A: pkg.ID(), B: pkg.GoFiles()}, true
+			return PkgFile{A: pkg.ID(), B: pkg.GoFiles()}, true
 		}
-		return File{}, false
+		return PkgFile{}, false
 	})
 }

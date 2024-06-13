@@ -135,7 +135,7 @@ func (types Types) Methods() Functions {
 	return functions
 }
 
-func (types Types) Files() Files {
+func (types Types) FileSet() FileSet {
 	panic("")
 }
 
