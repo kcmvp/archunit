@@ -233,10 +233,6 @@ func (pkg *Package) Name() string {
 	return pkg.raw.Name
 }
 
-func (pkg *Package) Path() string {
-	return pkg.raw.PkgPath
-}
-
 func (typ Type) Interface() bool {
 	_, ok := typ.Raw().Underlying().(*types.Interface)
 	return ok
