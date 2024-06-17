@@ -2,12 +2,12 @@
 package archunit
 
 import (
+	"errors"
 	"fmt"
 	"github.com/kcmvp/archunit/internal"
 	"github.com/samber/lo"
 	lop "github.com/samber/lo/parallel"
 	"go/types"
-	"log"
 	"strings"
 	"sync"
 )
@@ -30,10 +30,10 @@ func TypesWith(typeNames ...string) Types {
 }
 
 // TypesEmbeddedWith returns all the types that embed the specified type
-func TypesEmbeddedWith(embeddedType string) Types {
+func TypesEmbeddedWith(embeddedType string) (Types, error) {
 	eType, ok := internal.Arch().Type(embeddedType)
 	if !ok {
-		log.Fatalf("can not find interface %s", embeddedType)
+		return Types{}, fmt.Errorf("can not find interface %s", embeddedType)
 	}
 	var typMap sync.Map
 	lo.ForEach(internal.Arch().Packages(), func(pkg *internal.Package, index int) {
@@ -55,14 +55,14 @@ func TypesEmbeddedWith(embeddedType string) Types {
 		typs = append(typs, value.(internal.Type))
 		return true
 	})
-	return typs
+	return typs, nil
 }
 
 // TypesImplement return all the types implement the interface
-func TypesImplement(interName string) Types {
+func TypesImplement(interName string) (Types, error) {
 	interType, ok := internal.Arch().Type(interName)
 	if !ok || !interType.Interface() {
-		log.Fatalf("can not find interface %s", interName)
+		return Types{}, errors.New(lo.If(!ok, fmt.Sprintf("can not find interface %s", interName)).Else(""))
 	}
 	var typMap sync.Map
 	lo.ForEach(internal.Arch().Packages(), func(pkg *internal.Package, index int) {
@@ -80,7 +80,7 @@ func TypesImplement(interName string) Types {
 		typs = append(typs, value.(internal.Type))
 		return true
 	})
-	return typs
+	return typs, nil
 }
 
 // Skip  filter out the specified types
@@ -91,30 +91,32 @@ func (types Types) Skip(typNames ...string) Types {
 }
 
 // EmbeddedWith return types that embed the specified types
-func (types Types) EmbeddedWith(embedTyps ...string) Types {
-	embedded := lo.Map(embedTyps, func(typName string, _ int) internal.Type {
+func (types Types) EmbeddedWith(embedTyps ...string) (Types, error) {
+	var embedded []internal.Type
+	for _, typName := range embedTyps {
 		t, ok := internal.Arch().Type(typName)
 		if !ok {
-			log.Fatalf("can not find type %s", typName)
+			return Types{}, fmt.Errorf("can not find type %s", typName)
 		}
-		return t
-	})
+		embedded = append(embedded, t)
+	}
 	return lo.Filter(types, func(typ internal.Type, _ int) bool {
 		return lo.Contains(embedded, typ)
-	})
+	}), nil
 }
 
-func (types Types) Implement(interTyps ...string) Types {
-	inters := lo.Map(interTyps, func(typName string, _ int) internal.Type {
+func (types Types) Implement(interTyps ...string) (Types, error) {
+	var inters []internal.Type
+	for _, typName := range interTyps {
 		t, ok := internal.Arch().Type(typName)
 		if !ok {
-			log.Fatalf("can not find type %s", typName)
+			return Types{}, fmt.Errorf("can not find type %s", typName)
 		}
-		return t
-	})
+		inters = append(inters, t)
+	}
 	return lo.Filter(types, func(typ internal.Type, _ int) bool {
 		return lo.Contains(inters, typ)
-	})
+	}), nil
 }
 
 // InPackages return types in the specified packages
