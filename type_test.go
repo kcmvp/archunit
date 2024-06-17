@@ -55,6 +55,7 @@ func TestTypeImplement(t *testing.T) {
 	tests := []struct {
 		interType      string
 		implementation []string
+		hasError       bool
 	}{
 		{
 			interType: "internal/sample/service.NameService",
@@ -69,19 +70,18 @@ func TestTypeImplement(t *testing.T) {
 				"github.com/kcmvp/archunit/internal/sample/controller.AppContext",
 			},
 		},
-		//{
-		//	interType: "github.com/gin-gonic/gin.IRouter",
-		//	implementation: []string{
-		//		"github.com/kcmvp/archunit/internal/sample/controller.MyRouterGroup",
-		//	},
-		//},
+		{
+			interType: "github.com/gin-gonic/gin.IRouter",
+			hasError:  true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.interType, func(t *testing.T) {
-			types := lo.Map(TypesImplement(test.interType), func(item internal.Type, _ int) string {
+			types, err := TypesImplement(test.interType)
+			assert.Equal(t, test.hasError, err != nil)
+			assert.ElementsMatch(t, test.implementation, lo.Map(types, func(item internal.Type, _ int) string {
 				return item.Name()
-			})
-			assert.ElementsMatch(t, test.implementation, types)
+			}))
 		})
 	}
 }
@@ -90,6 +90,7 @@ func TestTypesEmbeddedWith(t *testing.T) {
 	tests := []struct {
 		interType      string
 		implementation []string
+		hasError       bool
 	}{
 		{
 			interType: "context.Context",
@@ -97,17 +98,18 @@ func TestTypesEmbeddedWith(t *testing.T) {
 				"github.com/kcmvp/archunit/internal/sample/controller.AppContext",
 			},
 		},
-		//{
-		//	interType:      "github.com/gin-gonic/gin.IRouter",
-		//	implementation: []string{},
-		//},
+		{
+			interType: "github.com/gin-gonic/gin.IRouter",
+			hasError:  true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.interType, func(t *testing.T) {
-			types := lo.Map(TypesEmbeddedWith(test.interType), func(item internal.Type, _ int) string {
+			types, err := TypesEmbeddedWith(test.interType)
+			assert.Equal(t, test.hasError, err != nil)
+			assert.ElementsMatch(t, test.implementation, lo.Map(types, func(item internal.Type, _ int) string {
 				return item.Name()
-			})
-			assert.ElementsMatch(t, test.implementation, types)
+			}))
 		})
 	}
 }

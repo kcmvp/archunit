@@ -2,17 +2,17 @@
 package archunit
 
 import (
+	"fmt"
 	"github.com/kcmvp/archunit/internal"
 	"github.com/samber/lo"
-	"log"
 )
 
 type Functions []internal.Function
 
-func FunctionsOfType(fTypName string) Functions {
+func FunctionsOfType(fTypName string) (Functions, error) {
 	typ, ok := internal.Arch().Type(fTypName)
 	if !ok || !typ.FuncType() {
-		log.Fatalf("can not find function type %s", fTypName)
+		return Functions{}, fmt.Errorf("can not find function type %s", fTypName)
 	}
 	lo.ForEach(lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
 		return lo.Contains(pkg.Imports(), typ.Package())
@@ -29,7 +29,7 @@ func FunctionsOfType(fTypName string) Functions {
 	//	}
 	//}
 
-	return Functions{}
+	return Functions{}, nil
 }
 
 func (functions Functions) Exclude(names ...string) Functions {
