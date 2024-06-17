@@ -34,9 +34,9 @@ func TestPackage(t *testing.T) {
 	pkgs := Packages("internal/sample/...")
 	assert.Equal(t, 12, len(pkgs))
 	assert.Equal(t, 12, len(pkgs.ID()))
-	assert.Equal(t, 12, len(pkgs.FileSet()))
+	assert.Equal(t, 12, len(pkgs.Files()))
 	var files []string
-	lo.ForEach(pkgs.FileSet(), func(f PackageFile, _ int) {
+	lo.ForEach(pkgs.Files(), func(f PackageFile, _ int) {
 		files = append(files, f.B...)
 	})
 	assert.Equal(t, 14, len(files))
@@ -59,7 +59,9 @@ func TestPackage_Ref(t *testing.T) {
 	assert.NoError(t, repository.ShouldOnlyReferPackages(model), "repository should not refer model")
 	assert.NoError(t, repository.ShouldOnlyReferPkgPaths("sample/model"), "repository should not refer model")
 	assert.Error(t, model.ShouldBeOnlyReferredByPackages(repository), "model is referenced by service")
+	assert.Error(t, model.ShouldBeOnlyReferredByPkgPaths("sample/repository", "sample/repository/..."), "model is referenced by service")
 	assert.Error(t, repository.ShouldBeOnlyReferredByPackages(service), "repository is referenced by controller")
+	assert.Error(t, repository.ShouldBeOnlyReferredByPkgPaths("sample/service", "sample/service/..."), "repository is referenced by controller")
 	assert.ElementsMatch(t, controller.ID(), []string{"github.com/kcmvp/archunit/internal/sample/controller",
 		"github.com/kcmvp/archunit/internal/sample/controller/module1"})
 	assert.ElementsMatch(t, lo.Map(controller.Types(), func(typ internal.Type, index int) string {

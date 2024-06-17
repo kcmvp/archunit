@@ -62,7 +62,7 @@ func (archPkg ArchPackage) Functions() Functions {
 	return functions
 }
 
-func (archPkg ArchPackage) FileSet() FileSet {
+func (archPkg ArchPackage) Files() FileSet {
 	var files []PackageFile
 	lo.ForEach(archPkg, func(pkg *internal.Package, _ int) {
 		files = append(files, PackageFile{A: pkg.ID(), B: pkg.Raw().GoFiles})
@@ -139,5 +139,6 @@ func (archPkg ArchPackage) ShouldOnlyReferPkgPaths(paths ...string) error {
 }
 
 func (archPkg ArchPackage) ShouldBeOnlyReferredByPkgPaths(paths ...string) error {
-	panic("implement me")
+	pkg := Packages(paths...)
+	return archPkg.ShouldBeOnlyReferredByPackages(pkg)
 }

@@ -131,7 +131,7 @@ func (layer ArchLayer) Types() Types {
 	return ts
 }
 
-func (layer ArchLayer) FileSet() FileSet {
+func (layer ArchLayer) Files() FileSet {
 	return lo.Map(layer, func(pkg *internal.Package, _ int) PackageFile {
 		return PackageFile{A: pkg.ID(), B: pkg.GoFiles()}
 	})
