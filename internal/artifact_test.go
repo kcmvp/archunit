@@ -104,6 +104,7 @@ func TestPackage_Functions(t *testing.T) {
 			funcs: []string{
 				"Arch",
 				"PkgPattern",
+				"PkgPatters",
 				"parse",
 			},
 			imports: []string{
@@ -130,14 +131,14 @@ func TestPackage_Functions(t *testing.T) {
 				"FunctionsOfType",
 				"HavePrefix",
 				"HaveSuffix",
-				"LayerByPath",
+				"Layer",
 				"AppTypes",
-				"AppPackages",
 				"SourceNameShould",
 				"TypesEmbeddedWith",
 				"TypesImplement",
 				"TypesWith",
-				"PackageByPath",
+				"Packages",
+				"AllPackages",
 			},
 			imports: []string{
 				"fmt",
@@ -154,14 +155,10 @@ func TestPackage_Functions(t *testing.T) {
 			exists: true,
 		},
 		{
-			pkg: "github.com/kcmvp/archunit/internal/sample",
-			funcs: []string{
-				"start",
-			},
-			imports: []string{
-				"github.com/gin-gonic/gin",
-			},
-			exists: true,
+			pkg:     "github.com/kcmvp/archunit/internal/sample",
+			funcs:   []string{},
+			imports: []string{},
+			exists:  false,
 		},
 		{
 			pkg: "github.com/kcmvp/archunit/internal/sample/service",
@@ -188,7 +185,7 @@ func TestPackage_Functions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.pkg, func(t *testing.T) {
 			pkg := Arch().Package(test.pkg)
-			assert.Equal(t, lo.If(pkg == nil, false).Else(true), test.exists)
+			assert.Equalf(t, lo.If(pkg == nil, false).Else(true), test.exists, test.pkg)
 			if pkg != nil {
 				funcs := lo.Map(pkg.Functions(), func(item Function, _ int) string {
 					return item.Name()
@@ -202,7 +199,7 @@ func TestPackage_Functions(t *testing.T) {
 }
 
 func TestAllSource(t *testing.T) {
-	assert.Equal(t, 22, len(Arch().GoFiles()))
+	assert.Equal(t, 20, len(Arch().GoFiles()))
 }
 
 func TestMethodsOfType(t *testing.T) {
@@ -279,7 +276,6 @@ func TestArtifact_AllPackages(t *testing.T) {
 		"github.com/kcmvp/archunit/internal/sample/service/ext",
 		"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
 		"github.com/kcmvp/archunit/internal/sample/service/thirdparty",
-		"github.com/kcmvp/archunit/internal/sample",
 	}
 	keys := lo.Map(Arch().Packages(), func(item *Package, _ int) string {
 		return item.ID()
@@ -346,11 +342,11 @@ func TestArtifact(t *testing.T) {
 }
 
 func TestArchType(t *testing.T) {
-	size := len(arch.Packages())
+	size := len(Arch().Packages(false))
 	typ, ok := Arch().Type("github.com/samber/lo.Entry[K comparable, V any]")
 	assert.True(t, ok)
 	assert.Equal(t, "github.com/samber/lo.Entry[K comparable, V any]", typ.Name())
-	assert.True(t, len(arch.Packages()) > size)
+	assert.True(t, len(Arch().Packages(false)) > size)
 }
 
 func TestArchFuncType(t *testing.T) {
@@ -366,7 +362,7 @@ func TestArchFuncType(t *testing.T) {
 		},
 		{
 			name: "invalid",
-			typ:  "internal/sample/controller.EmbeddedGroup",
+			typ:  "internal/sample/controller.AppContext",
 			exp:  false,
 		},
 	}

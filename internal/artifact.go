@@ -103,6 +103,16 @@ func PkgPattern(path string) (*regexp.Regexp, error) {
 	return regexp.MustCompile(fmt.Sprintf("%s$", path)), nil
 }
 
+func PkgPatters(paths ...string) []*regexp.Regexp {
+	return lo.Map(paths, func(path string, _ int) *regexp.Regexp {
+		reg, err := PkgPattern(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return reg
+	})
+}
+
 func parse(pkg *packages.Package, mode ParseMode) *Package {
 	archPkg := &Package{raw: pkg}
 	typPkg := pkg.Types
@@ -134,10 +144,16 @@ func parse(pkg *packages.Package, mode ParseMode) *Package {
 	return archPkg
 }
 
-func (artifact *Artifact) Packages() []*Package {
+func (artifact *Artifact) Packages(appOnly ...bool) []*Package {
 	var pkgs []*Package
+	flag := lo.If(appOnly == nil, true).ElseF(func() bool {
+		return appOnly[0]
+	})
 	artifact.pkgs.Range(func(_, value any) bool {
-		pkgs = append(pkgs, value.(*Package))
+		pkg := value.(*Package)
+		if !flag || flag && strings.HasPrefix(pkg.ID(), artifact.module) {
+			pkgs = append(pkgs, pkg)
+		}
 		return true
 	})
 	return pkgs
@@ -215,10 +231,6 @@ func (pkg *Package) Imports() []string {
 
 func (pkg *Package) Name() string {
 	return pkg.raw.Name
-}
-
-func (pkg *Package) Path() string {
-	return pkg.raw.PkgPath
 }
 
 func (typ Type) Interface() bool {

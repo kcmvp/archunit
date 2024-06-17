@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/kcmvp/archunit/internal"
 	"github.com/samber/lo"
-	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -33,7 +32,7 @@ func HaveSuffix(name, suffix string) bool {
 	return strings.HasSuffix(name, suffix)
 }
 
-type Layer []*internal.Package
+type ArchLayer []*internal.Package
 
 func SourceNameShould(pattern NamePattern, args ...string) error {
 	if file, ok := lo.Find(internal.Arch().GoFiles(), func(file string) bool {
@@ -56,14 +55,8 @@ func ConstantsShouldBeDefinedInOneFileByPackage() error {
 	return nil
 }
 
-func LayerByPath(pkgPaths ...string) Layer {
-	patterns := lo.Map(pkgPaths, func(path string, _ int) *regexp.Regexp {
-		reg, err := internal.PkgPattern(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return reg
-	})
+func Layer(pkgPaths ...string) ArchLayer {
+	patterns := internal.PkgPatters(pkgPaths...)
 	return lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
 		return lo.ContainsBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
@@ -71,7 +64,7 @@ func LayerByPath(pkgPaths ...string) Layer {
 	})
 }
 
-func (layer Layer) Name() string {
+func (layer ArchLayer) Name() string {
 	pkgs := layer.packages()
 	idx := 0
 	left := lo.DropWhile(pkgs, func(item string) bool {
@@ -86,14 +79,8 @@ func (layer Layer) Name() string {
 	return fmt.Sprintf("%v", left)
 }
 
-func (layer Layer) Exclude(pkgPaths ...string) Layer {
-	patterns := lo.Map(pkgPaths, func(path string, _ int) *regexp.Regexp {
-		reg, err := internal.PkgPattern(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return reg
-	})
+func (layer ArchLayer) Exclude(pkgPaths ...string) ArchLayer {
+	patterns := internal.PkgPatters(pkgPaths...)
 	return lo.Filter(layer, func(pkg *internal.Package, _ int) bool {
 		return lo.NoneBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
@@ -101,14 +88,8 @@ func (layer Layer) Exclude(pkgPaths ...string) Layer {
 	})
 }
 
-func (layer Layer) Sub(name string, paths ...string) Layer {
-	patterns := lo.Map(paths, func(path string, _ int) *regexp.Regexp {
-		reg, err := internal.PkgPattern(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return reg
-	})
+func (layer ArchLayer) Sub(name string, paths ...string) ArchLayer {
+	patterns := internal.PkgPatters(paths...)
 	return lo.Filter(layer, func(pkg *internal.Package, _ int) bool {
 		return lo.SomeBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
@@ -116,11 +97,11 @@ func (layer Layer) Sub(name string, paths ...string) Layer {
 	})
 }
 
-func (layer Layer) Packages() Packages {
-	return Packages(layer)
+func (layer ArchLayer) Packages() ArchPackage {
+	return ArchPackage(layer)
 }
 
-func (layer Layer) Functions() Functions {
+func (layer ArchLayer) Functions() Functions {
 	var fs Functions
 	lo.ForEach(layer, func(pkg *internal.Package, _ int) {
 		fs = append(fs, pkg.Functions()...)
@@ -128,13 +109,13 @@ func (layer Layer) Functions() Functions {
 	return fs
 }
 
-func (layer Layer) packages() []string {
+func (layer ArchLayer) packages() []string {
 	return lo.Map(layer, func(item *internal.Package, _ int) string {
-		return item.Path()
+		return item.ID()
 	})
 }
 
-func (layer Layer) Imports() []string {
+func (layer ArchLayer) Imports() []string {
 	var imports []string
 	for _, pkg := range layer {
 		imports = append(imports, pkg.Imports()...)
@@ -142,7 +123,33 @@ func (layer Layer) Imports() []string {
 	return imports
 }
 
-func (layer Layer) ShouldNotReferLayers(layers ...Layer) error {
+func (layer ArchLayer) Types() Types {
+	var ts Types
+	lo.ForEach(layer, func(pkg *internal.Package, _ int) {
+		ts = append(ts, pkg.Types()...)
+	})
+	return ts
+}
+
+func (layer ArchLayer) FileSet() FileSet {
+	return lo.Map(layer, func(pkg *internal.Package, _ int) PackageFile {
+		return PackageFile{A: pkg.ID(), B: pkg.GoFiles()}
+	})
+}
+
+func (layer ArchLayer) FilesInPackages(paths ...string) FileSet {
+	patterns := internal.PkgPatters(paths...)
+	return lo.FilterMap(layer, func(pkg *internal.Package, _ int) (PackageFile, bool) {
+		if lo.SomeBy(patterns, func(reg *regexp.Regexp) bool {
+			return reg.MatchString(pkg.ID())
+		}) {
+			return PackageFile{A: pkg.ID(), B: pkg.GoFiles()}, true
+		}
+		return PackageFile{}, false
+	})
+}
+
+func (layer ArchLayer) ShouldNotReferLayers(layers ...ArchLayer) error {
 	var packages []string
 	for _, l := range layers {
 		packages = append(packages, l.packages()...)
@@ -153,51 +160,35 @@ func (layer Layer) ShouldNotReferLayers(layers ...Layer) error {
 	return lo.If(ok, fmt.Errorf("%s refers %s", layer.Name(), path)).Else(nil)
 }
 
-func (layer Layer) ShouldNotReferPackages(paths ...string) error {
-	return layer.ShouldNotReferLayers(LayerByPath(paths...))
+func (layer ArchLayer) ShouldNotReferPackages(paths ...string) error {
+	return layer.ShouldNotReferLayers(Layer(paths...))
 }
 
-func (layer Layer) ShouldOnlyReferLayers(layers ...Layer) error {
+func (layer ArchLayer) ShouldOnlyReferLayers(layers ...ArchLayer) error {
 	var pkgs []string
 	for _, l := range layers {
 		pkgs = append(pkgs, l.packages()...)
 	}
-	ref, ok := lo.Find(layer.Imports(), func(ref string) bool {
-		return !lo.Contains(pkgs, ref)
-	})
-	return lo.If(ok, fmt.Errorf("%s refers %s", layer.Name(), ref)).Else(nil)
+	d1, _ := lo.Difference(layer.Imports(), pkgs)
+	return lo.If(len(d1) > 0, fmt.Errorf("%v are out of scope %v", d1, pkgs)).Else(nil)
 }
 
-func (layer Layer) ShouldOnlyReferPackages(paths ...string) error {
-	return layer.ShouldOnlyReferLayers(LayerByPath(paths...))
+func (layer ArchLayer) ShouldOnlyReferPackages(paths ...string) error {
+	return layer.ShouldOnlyReferLayers(Layer(paths...))
 }
 
-func (layer Layer) ShouldBeOnlyReferredByLayers(layers ...Layer) error {
-	var pkgs []*internal.Package
-	for _, l := range layers {
-		pkgs = append(pkgs, l...)
-	}
-	others := lo.Filter(internal.Arch().Packages(), func(pkg1 *internal.Package, _ int) bool {
-		return lo.NoneBy(pkgs, func(pkg2 *internal.Package) bool {
-			return pkg1.ID() == pkg2.ID()
-		})
-	})
-	if p, ok := lo.Find(others, func(other *internal.Package) bool {
-		return lo.SomeBy(other.Imports(), func(ref string) bool {
-			return lo.Contains(layer.Imports(), ref)
-		})
-	}); ok {
-		return fmt.Errorf("package %s refer layer %s", p.ID(), layer.Name())
-	}
-	return nil
+func (layer ArchLayer) ShouldBeOnlyReferredByLayers(layers ...ArchLayer) error {
+	return ArchPackage(layer).ShouldBeOnlyReferredByPackages(lo.Map(layers, func(item ArchLayer, _ int) ArchPackage {
+		return ArchPackage(item)
+	})...)
 }
 
-func (layer Layer) ShouldBeOnlyReferredByPackages(paths ...string) error {
-	layer1 := LayerByPath(paths...)
+func (layer ArchLayer) ShouldBeOnlyReferredByPackages(paths ...string) error {
+	layer1 := Layer(paths...)
 	return layer.ShouldBeOnlyReferredByLayers(layer1)
 }
 
-func (layer Layer) DepthShouldLessThan(depth int) error {
+func (layer ArchLayer) DepthShouldLessThan(depth int) error {
 	pkg := lo.MaxBy(layer, func(a *internal.Package, b *internal.Package) bool {
 		return len(strings.Split(a.ID(), "/")) > len(strings.Split(a.ID(), "/"))
 	})
@@ -205,36 +196,4 @@ func (layer Layer) DepthShouldLessThan(depth int) error {
 		return fmt.Errorf("%s max depth is %d", pkg.ID(), acc)
 	}
 	return nil
-}
-
-func (layer Layer) Types() Types {
-	var ts Types
-	lo.ForEach(layer, func(pkg *internal.Package, _ int) {
-		ts = append(ts, pkg.Types()...)
-	})
-	return ts
-}
-
-func (layer Layer) Files() Files {
-	return lo.Map(layer, func(pkg *internal.Package, _ int) File {
-		return File{A: pkg.ID(), B: pkg.GoFiles()}
-	})
-}
-
-func (layer Layer) FilesInPackages(paths ...string) Files {
-	patterns := lo.Map(paths, func(path string, _ int) *regexp.Regexp {
-		reg, err := internal.PkgPattern(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return reg
-	})
-	return lo.FilterMap(layer, func(pkg *internal.Package, _ int) (File, bool) {
-		if lo.SomeBy(patterns, func(reg *regexp.Regexp) bool {
-			return reg.MatchString(pkg.ID())
-		}) {
-			return File{A: pkg.ID(), B: pkg.GoFiles()}, true
-		}
-		return File{}, false
-	})
 }
