@@ -15,13 +15,13 @@ func AllPackages() ArchPackage {
 	return internal.Arch().Packages()
 }
 
-func Packages(paths ...string) ArchPackage {
-	patterns := internal.PkgPatters(paths...)
+func Packages(paths ...string) (ArchPackage, error) {
+	patterns, err := ScopePattern(paths...)
 	return lo.Filter(AllPackages(), func(pkg *internal.Package, _ int) bool {
 		return lo.ContainsBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
 		})
-	})
+	}), err
 }
 
 func (archPkg ArchPackage) ID() []string {
@@ -104,7 +104,11 @@ func (archPkg ArchPackage) ShouldNotRefer(referred ...ArchPackage) error {
 }
 
 func (archPkg ArchPackage) ShouldNotReferPkgPaths(paths ...string) error {
-	return archPkg.ShouldNotRefer(Packages(paths...))
+	pkgs, err := Packages(paths...)
+	if err != nil {
+		return err
+	}
+	return archPkg.ShouldNotRefer(pkgs)
 }
 
 func (archPkg ArchPackage) ShouldBeOnlyReferredByPackages(referrings ...ArchPackage) error {
@@ -134,11 +138,17 @@ func (archPkg ArchPackage) ShouldOnlyReferPackages(referred ...ArchPackage) erro
 }
 
 func (archPkg ArchPackage) ShouldOnlyReferPkgPaths(paths ...string) error {
-	pkg := Packages(paths...)
+	pkg, err := Packages(paths...)
+	if err != nil {
+		return err
+	}
 	return archPkg.ShouldOnlyReferPackages(pkg)
 }
 
 func (archPkg ArchPackage) ShouldBeOnlyReferredByPkgPaths(paths ...string) error {
-	pkg := Packages(paths...)
+	pkg, err := Packages(paths...)
+	if err != nil {
+		return err
+	}
 	return archPkg.ShouldBeOnlyReferredByPackages(pkg)
 }
