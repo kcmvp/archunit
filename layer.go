@@ -55,13 +55,16 @@ func ConstantsShouldBeDefinedInOneFileByPackage() error {
 	return nil
 }
 
-func Layer(pkgPaths ...string) ArchLayer {
-	patterns := internal.PkgPatters(pkgPaths...)
+func Layer(pkgPaths ...string) (ArchLayer, error) {
+	patterns, err := ScopePattern(pkgPaths...)
+	if err != nil {
+		return nil, err
+	}
 	return lo.Filter(internal.Arch().Packages(), func(pkg *internal.Package, _ int) bool {
 		return lo.ContainsBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
 		})
-	})
+	}), nil
 }
 
 func (layer ArchLayer) Name() string {
@@ -79,22 +82,28 @@ func (layer ArchLayer) Name() string {
 	return fmt.Sprintf("%v", left)
 }
 
-func (layer ArchLayer) Exclude(pkgPaths ...string) ArchLayer {
-	patterns := internal.PkgPatters(pkgPaths...)
+func (layer ArchLayer) Exclude(pkgPaths ...string) (ArchLayer, error) {
+	patterns, err := ScopePattern(pkgPaths...)
+	if err != nil {
+		return nil, err
+	}
 	return lo.Filter(layer, func(pkg *internal.Package, _ int) bool {
 		return lo.NoneBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
 		})
-	})
+	}), nil
 }
 
-func (layer ArchLayer) Sub(name string, paths ...string) ArchLayer {
-	patterns := internal.PkgPatters(paths...)
+func (layer ArchLayer) Sub(name string, paths ...string) (ArchLayer, error) {
+	patterns, err := ScopePattern(paths...)
+	if err != nil {
+		return nil, err
+	}
 	return lo.Filter(layer, func(pkg *internal.Package, _ int) bool {
 		return lo.SomeBy(patterns, func(pattern *regexp.Regexp) bool {
 			return pattern.MatchString(pkg.ID())
 		})
-	})
+	}), nil
 }
 
 func (layer ArchLayer) Packages() ArchPackage {
@@ -137,8 +146,11 @@ func (layer ArchLayer) Files() FileSet {
 	})
 }
 
-func (layer ArchLayer) FilesInPackages(paths ...string) FileSet {
-	patterns := internal.PkgPatters(paths...)
+func (layer ArchLayer) FilesInPackages(paths ...string) (FileSet, error) {
+	patterns, err := ScopePattern(paths...)
+	if err != nil {
+		return nil, err
+	}
 	return lo.FilterMap(layer, func(pkg *internal.Package, _ int) (PackageFile, bool) {
 		if lo.SomeBy(patterns, func(reg *regexp.Regexp) bool {
 			return reg.MatchString(pkg.ID())
@@ -146,7 +158,7 @@ func (layer ArchLayer) FilesInPackages(paths ...string) FileSet {
 			return PackageFile{A: pkg.ID(), B: pkg.GoFiles()}, true
 		}
 		return PackageFile{}, false
-	})
+	}), nil
 }
 
 func (layer ArchLayer) ShouldNotReferLayers(layers ...ArchLayer) error {
@@ -161,7 +173,11 @@ func (layer ArchLayer) ShouldNotReferLayers(layers ...ArchLayer) error {
 }
 
 func (layer ArchLayer) ShouldNotReferPackages(paths ...string) error {
-	return layer.ShouldNotReferLayers(Layer(paths...))
+	l, err := Layer(paths...)
+	if err != nil {
+		return err
+	}
+	return layer.ShouldNotReferLayers(l)
 }
 
 func (layer ArchLayer) ShouldOnlyReferLayers(layers ...ArchLayer) error {
@@ -174,7 +190,11 @@ func (layer ArchLayer) ShouldOnlyReferLayers(layers ...ArchLayer) error {
 }
 
 func (layer ArchLayer) ShouldOnlyReferPackages(paths ...string) error {
-	return layer.ShouldOnlyReferLayers(Layer(paths...))
+	l, err := Layer(paths...)
+	if err != nil {
+		return err
+	}
+	return layer.ShouldOnlyReferLayers(l)
 }
 
 func (layer ArchLayer) ShouldBeOnlyReferredByLayers(layers ...ArchLayer) error {
@@ -184,8 +204,11 @@ func (layer ArchLayer) ShouldBeOnlyReferredByLayers(layers ...ArchLayer) error {
 }
 
 func (layer ArchLayer) ShouldBeOnlyReferredByPackages(paths ...string) error {
-	layer1 := Layer(paths...)
-	return layer.ShouldBeOnlyReferredByLayers(layer1)
+	l, err := Layer(paths...)
+	if err != nil {
+		return err
+	}
+	return layer.ShouldBeOnlyReferredByLayers(l)
 }
 
 func (layer ArchLayer) DepthShouldLessThan(depth int) error {

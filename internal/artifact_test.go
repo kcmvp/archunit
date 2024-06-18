@@ -7,61 +7,6 @@ import (
 	"testing"
 )
 
-func Test_pattern(t *testing.T) {
-	tests := []struct {
-		name    string
-		path    string
-		wantErr bool
-	}{
-		{
-			name:    "valid one dot",
-			path:    "github.com/kcmvp/archunit",
-			wantErr: false,
-		},
-		{
-			name:    "invalid one dot",
-			path:    "github.com/./kcmvp/archunit",
-			wantErr: true,
-		},
-		{
-			name:    "valid-two-dots",
-			path:    "git.hub.com/kcmvp/archunit",
-			wantErr: false,
-		},
-		{
-			name:    "invalid with two dots",
-			path:    "github.com/../kcmvp/archunit",
-			wantErr: true,
-		},
-		{
-			name:    "invalid-two-dots",
-			path:    "github..com/kcmvp/archunit",
-			wantErr: true,
-		},
-		{
-			name:    "invalid-two-dots",
-			path:    "githubcom/../kcmvp/archunit",
-			wantErr: true,
-		},
-		{
-			name:    "valid three dots",
-			path:    "githubcom/.../kcmvp/archunit",
-			wantErr: false,
-		},
-		{
-			name:    "invalid three more dots",
-			path:    "githubcom/..../kcmvp/archunit",
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := PkgPattern(tt.path)
-			assert.Equal(t, tt.wantErr, err != nil)
-		})
-	}
-}
-
 func TestAllConstants(t *testing.T) {
 	tests := []struct {
 		pkg   string
@@ -103,8 +48,6 @@ func TestPackage_Functions(t *testing.T) {
 			pkg: "github.com/kcmvp/archunit/internal",
 			funcs: []string{
 				"Arch",
-				"PkgPattern",
-				"PkgPatters",
 				"parse",
 			},
 			imports: []string{
@@ -113,7 +56,6 @@ func TestPackage_Functions(t *testing.T) {
 				"golang.org/x/tools/go/packages",
 				"log",
 				"go/types",
-				"regexp",
 				"github.com/samber/lo",
 				"strings",
 				"sync",
@@ -139,6 +81,7 @@ func TestPackage_Functions(t *testing.T) {
 				"TypesWith",
 				"Packages",
 				"AllPackages",
+				"ScopePattern",
 			},
 			imports: []string{
 				"fmt",
@@ -199,7 +142,7 @@ func TestPackage_Functions(t *testing.T) {
 }
 
 func TestAllSource(t *testing.T) {
-	assert.Equal(t, 20, len(Arch().GoFiles()))
+	assert.Equal(t, 21, len(Arch().GoFiles()))
 }
 
 func TestMethodsOfType(t *testing.T) {

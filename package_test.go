@@ -26,12 +26,12 @@ func TestPackageNameShould(t *testing.T) {
 	pkgs := AllPackages()
 	err := pkgs.NameShould(BeLowerCase)
 	assert.NoError(t, err)
-	err = pkgs.NameShould((BeUpperCase))
+	err = pkgs.NameShould(BeUpperCase)
 	assert.Error(t, err)
 }
 
 func TestPackage(t *testing.T) {
-	pkgs := Packages("internal/sample/...")
+	pkgs, _ := Packages("internal/sample/...")
 	assert.Equal(t, 12, len(pkgs))
 	assert.Equal(t, 12, len(pkgs.ID()))
 	assert.Equal(t, 12, len(pkgs.Files()))
@@ -48,10 +48,10 @@ func TestPackage(t *testing.T) {
 }
 
 func TestPackage_Ref(t *testing.T) {
-	controller := Packages("sample/controller", "sample/controller/...")
-	model := Packages("sample/model")
-	service := Packages("sample/service", "sample/service/...")
-	repository := Packages("sample/repository", "sample/repository/...")
+	controller, _ := Packages("sample/controller", "sample/controller/...")
+	model, _ := Packages("sample/model")
+	service, _ := Packages("sample/service", "sample/service/...")
+	repository, _ := Packages("sample/repository", "sample/repository/...")
 	assert.NoError(t, controller.ShouldNotRefer(model))
 	assert.NoError(t, controller.ShouldNotReferPkgPaths("sample/model"))
 	assert.Errorf(t, controller.ShouldNotRefer(repository), "controller should not refer repository")

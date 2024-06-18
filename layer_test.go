@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestPackages(t *testing.T) {
+func TestLayerPackages(t *testing.T) {
 	tests := []struct {
 		name   string
 		paths  []string
@@ -41,10 +41,10 @@ func TestPackages(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			layer := Layer(test.paths...)
+			layer, _ := Layer(test.paths...)
 			assert.Equal(t, test.size1, len(layer.packages()))
 			if len(test.except) > 0 {
-				layer = layer.Exclude(test.except...)
+				layer, _ = layer.Exclude(test.except...)
 				assert.Equal(t, test.size2, len(layer.packages()))
 			}
 		})
@@ -63,22 +63,22 @@ func TestLayer_Sub(t *testing.T) {
 			name:  "ext sub",
 			paths: []string{".../service/..."},
 			sub:   []string{".../ext/"},
-			size1: 4,
+			size1: 5,
 			size2: 1,
 		},
 		{
 			name:  "ext sub",
 			paths: []string{".../service/..."},
 			sub:   []string{".../ext/..."},
-			size1: 4,
-			size2: 2,
+			size1: 5,
+			size2: 3,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			layer := Layer(tt.paths...)
+			layer, _ := Layer(tt.paths...)
 			assert.Equal(t, tt.size1, len(layer.packages()))
-			layer = layer.Sub(tt.name, tt.sub...)
+			layer, _ = layer.Sub(tt.name, tt.sub...)
 			assert.Equal(t, tt.size2, len(layer.packages()))
 		})
 	}
@@ -97,7 +97,7 @@ func TestConstantsShouldBeDefinedInOneFileByPackage(t *testing.T) {
 }
 
 func TestLayPackages(t *testing.T) {
-	layer := Layer("sample/controller", "sample/controller/...")
+	layer, _ := Layer("sample/controller/...")
 	assert.ElementsMatch(t, []string{"github.com/kcmvp/archunit/internal/sample/controller",
 		"github.com/kcmvp/archunit/internal/sample/controller/module1"}, layer.packages())
 	assert.ElementsMatch(t, layer.Imports(),
@@ -112,10 +112,10 @@ func TestLayPackages(t *testing.T) {
 }
 
 func TestLayer_Refer(t *testing.T) {
-	controller := Layer("sample/controller", "sample/controller/...")
-	model := Layer("sample/model")
-	service := Layer("sample/service", "sample/service/...")
-	repository := Layer("sample/repository", "sample/repository/...")
+	controller, _ := Layer("sample/controller", "sample/controller/...")
+	model, _ := Layer("sample/model")
+	service, _ := Layer("sample/service", "sample/service/...")
+	repository, _ := Layer("sample/repository", "sample/repository/...")
 	assert.NoError(t, controller.ShouldNotReferLayers(model))
 	assert.NoError(t, controller.ShouldNotReferPackages("sample/model"))
 	assert.Errorf(t, controller.ShouldNotReferLayers(repository), "controller should not refer repository")
