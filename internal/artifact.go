@@ -87,31 +87,6 @@ func Arch() *Artifact {
 	})
 	return arch
 }
-
-//func PkgPattern(path string) (*regexp.Regexp, error) {
-//	p := `^(?:[a-zA-Z]+(?:\.[a-zA-Z]+)*|\.\.\.)$`
-//	re := regexp.MustCompile(p)
-//	for _, seg := range strings.Split(path, "/") {
-//		if len(seg) > 0 && !re.MatchString(seg) {
-//			return nil, fmt.Errorf("invalid package paths: %s", path)
-//		}
-//	}
-//	path = strings.TrimSuffix(path, "/")
-//	path = strings.TrimPrefix(path, "/")
-//	path = strings.ReplaceAll(path, "...", ".*")
-//	return regexp.MustCompile(fmt.Sprintf("%s$", path)), nil
-//}
-//
-//func PkgPatters(paths ...string) []*regexp.Regexp {
-//	return lo.Map(paths, func(path string, _ int) *regexp.Regexp {
-//		reg, err := PkgPattern(path)
-//		if err != nil {
-//			log.Fatal(err)
-//		}
-//		return reg
-//	})
-//}
-
 func parse(pkg *packages.Package, mode ParseMode) *Package {
 	archPkg := &Package{raw: pkg}
 	typPkg := pkg.Types
