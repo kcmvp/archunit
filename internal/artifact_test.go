@@ -1,10 +1,11 @@
 package internal
 
 import (
-	"github.com/samber/lo"
-	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
+
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAllConstants(t *testing.T) {
@@ -19,7 +20,7 @@ func TestAllConstants(t *testing.T) {
 		},
 		{
 			pkg:   "github.com/kcmvp/archunit",
-			files: []string{"archunit/layer.go"},
+			files: []string{"archunit/arch.go"},
 		},
 	}
 	for _, test := range tests {

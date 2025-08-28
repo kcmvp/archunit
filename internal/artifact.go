@@ -2,14 +2,15 @@ package internal
 
 import (
 	"fmt"
-	"github.com/fatih/color"
-	"github.com/samber/lo"
-	lop "github.com/samber/lo/parallel"
 	"go/types"
 	"log"
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/fatih/color"
+	"github.com/samber/lo"
+	lop "github.com/samber/lo/parallel"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -33,6 +34,7 @@ type Package struct {
 	constantsDef []string
 	functions    []Function
 	types        []Type
+	variables    []Variable
 }
 
 type Param lo.Tuple2[string, string]
@@ -41,13 +43,16 @@ type Function struct {
 	raw *types.Func
 }
 
+func (f Function) Raw() *types.Func {
+	return f.raw
+}
+
 type Type struct {
 	raw *types.TypeName
 }
 
 type Variable struct {
-	pkg string
-	raw *types.Named
+	raw *types.Var
 }
 type Artifact struct {
 	rootDir string
@@ -82,7 +87,7 @@ func Arch() *Artifact {
 			return
 		}
 		lop.ForEach(pkgs, func(pkg *packages.Package, _ int) {
-			arch.pkgs.Store(pkg.ID, parse(pkg, ParseCon|ParseFun|ParseTyp))
+			arch.pkgs.Store(pkg.ID, parse(pkg, ParseCon|ParseFun|ParseTyp|ParseVar))
 		})
 	})
 	return arch
@@ -111,7 +116,7 @@ func parse(pkg *packages.Package, mode ParseMode) *Package {
 			}
 		case *types.Var:
 			if ParseVar&mode == ParseVar {
-				panic("unreachable")
+				archPkg.variables = append(archPkg.variables, Variable{raw: vType})
 			}
 		}
 	})
@@ -138,6 +143,30 @@ func (artifact *Artifact) Package(id string) *Package {
 		return pkg.(*Package)
 	}
 	return nil
+}
+
+func (artifact *Artifact) Types() []Type {
+	var allTypes []Type
+	for _, pkg := range artifact.Packages(true) { // app only
+		allTypes = append(allTypes, pkg.Types()...)
+	}
+	return allTypes
+}
+
+func (artifact *Artifact) Functions() []Function {
+	var allFuncs []Function
+	for _, pkg := range artifact.Packages(true) { // app only
+		allFuncs = append(allFuncs, pkg.Functions()...)
+	}
+	return allFuncs
+}
+
+func (artifact *Artifact) Variables() []Variable {
+	var allVars []Variable
+	for _, pkg := range artifact.Packages(true) { // app only
+		allVars = append(allVars, pkg.Variables()...)
+	}
+	return allVars
 }
 
 func (artifact *Artifact) GoFiles() []string {
@@ -189,6 +218,10 @@ func (pkg *Package) Functions() []Function {
 
 func (pkg *Package) Types() []Type {
 	return pkg.types
+}
+
+func (pkg *Package) Variables() []Variable {
+	return pkg.variables
 }
 
 func (pkg *Package) ID() string {
@@ -258,6 +291,10 @@ func (f Function) Name() string {
 	return f.raw.Name()
 }
 
+func (f Function) FullName() string {
+	return f.raw.FullName()
+}
+
 func (f Function) Package() string {
 	return f.raw.Pkg().Path()
 }
@@ -286,4 +323,19 @@ func (f Function) Returns() []Param {
 		}
 	}
 	return rt
+}
+
+func (v Variable) Type() types.Type {
+	return v.raw.Type()
+}
+
+func (v Variable) FullName() string {
+	if v.raw.Pkg() == nil {
+		return v.raw.Name()
+	}
+	return fmt.Sprintf("%s.%s", v.raw.Pkg().Path(), v.raw.Name())
+}
+
+func (v Variable) Package() string {
+	return v.raw.Pkg().Path()
 }
