@@ -31,7 +31,7 @@ var (
 )
 
 // Param represents a function parameter or return value, with a name and a type.
-type Param lo.Tuple2[string, string]
+type Param = internal.Param
 
 type ArchObject interface {
 	Name() string

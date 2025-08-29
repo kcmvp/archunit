@@ -1,321 +1,259 @@
 package internal
 
 import (
+	"encoding/json"
+	"os"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/kcmvp/archunit/promote"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAllConstants(t *testing.T) {
-	tests := []struct {
-		pkg   string
-		files []string
-	}{
-		{
-			pkg: "github.com/kcmvp/archunit/internal/sample/repository",
-			files: []string{"archunit/internal/sample/repository/constants.go",
-				"archunit/internal/sample/repository/user_repository.go"},
-		},
-		{
-			pkg:   "github.com/kcmvp/archunit",
-			files: []string{"archunit/arch.go"},
-		},
+type ArtifactSuite struct {
+	promote.ArchSuite
+	arch *Artifact
+}
+
+func (suite *ArtifactSuite) SetupSuite() {
+	suite.arch = Arch()
+}
+
+func TestArtifactSuite(t *testing.T) {
+	promote.Run(t, new(ArtifactSuite))
+}
+
+func (suite *ArtifactSuite) TestAllConstants() {
+	type testCase struct {
+		Pkg   string   `json:"pkg"`
+		Files []string `json:"files"`
 	}
+	data, err := os.ReadFile("testdata/all_constants.json")
+	suite.NoError(err)
+	var tests []testCase
+	err = json.Unmarshal(data, &tests)
+	suite.NoError(err)
+
 	for _, test := range tests {
-		t.Run(test.pkg, func(t *testing.T) {
-			pkg := Arch().Package(test.pkg)
-			assert.NotNil(t, pkg)
-			assert.Equal(t, len(test.files), len(pkg.ConstantFiles()))
-			lo.EveryBy(test.files, func(f1 string) bool {
-				return lo.EveryBy(pkg.ConstantFiles(), func(f2 string) bool {
-					return strings.HasSuffix(f2, f1)
-				})
+		suite.Run(test.Pkg, func() {
+			pkg := suite.arch.Package(test.Pkg)
+			suite.NotNil(pkg)
+
+			actualFiles := lo.Map(pkg.ConstantFiles(), func(file string, _ int) string {
+				// make path relative for consistent comparison
+				return strings.TrimPrefix(file, suite.arch.RootDir()+"/")
 			})
+			sort.Strings(actualFiles)
+			actual := testCase{Pkg: test.Pkg, Files: actualFiles}
+			assert.ElementsMatch(suite, test.Files, actual.Files)
 		})
 	}
-
 }
 
-func TestPackage_Functions(t *testing.T) {
-	tests := []struct {
-		pkg     string
-		funcs   []string
-		imports []string
-		exists  bool
-	}{
-		{
-			pkg: "github.com/kcmvp/archunit/internal",
-			funcs: []string{
-				"Arch",
-				"parse",
-			},
-			imports: []string{
-				"fmt",
-				"os/exec",
-				"golang.org/x/tools/go/packages",
-				"log",
-				"go/types",
-				"github.com/samber/lo",
-				"strings",
-				"sync",
-				"github.com/fatih/color",
-				"github.com/samber/lo/parallel",
-			},
-			exists: true,
-		},
-		{
-			pkg: "github.com/kcmvp/archunit",
-			funcs: []string{
-				"BeLowerCase",
-				"BeUpperCase",
-				"ConstantsShouldBeDefinedInOneFileByPackage",
-				"FunctionsOfType",
-				"HavePrefix",
-				"HaveSuffix",
-				"Layer",
-				"AppTypes",
-				"SourceNameShould",
-				"TypesEmbeddedWith",
-				"TypesImplement",
-				"TypesWith",
-				"Packages",
-				"AllPackages",
-				"ScopePattern",
-			},
-			imports: []string{
-				"fmt",
-				"github.com/kcmvp/archunit/internal",
-				"github.com/samber/lo",
-				"go/types",
-				"path/filepath",
-				"regexp",
-				"strings",
-				"github.com/samber/lo/parallel",
-				"sync",
-				"errors",
-			},
-			exists: true,
-		},
-		{
-			pkg:     "github.com/kcmvp/archunit/internal/sample",
-			funcs:   []string{},
-			imports: []string{},
-			exists:  false,
-		},
-		{
-			pkg: "github.com/kcmvp/archunit/internal/sample/service",
-			funcs: []string{
-				"AuditCall",
-			},
-			imports: []string{
-				"context",
-				"github.com/kcmvp/archunit/internal/sample/repository",
-				"github.com/kcmvp/archunit/internal/sample/model",
-			},
-			exists: true,
-		},
-		{
-			pkg:   "github.com/kcmvp/archunit/internal/sample/controller/module1",
-			funcs: []string{},
-			imports: []string{
-				"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
-				"github.com/kcmvp/archunit/internal/sample/repository",
-			},
-			exists: true,
-		},
+func (suite *ArtifactSuite) TestPackage_Functions() {
+	type testCase struct {
+		Pkg     string   `json:"pkg"`
+		Funcs   []string `json:"funcs"`
+		Imports []string `json:"imports"`
+		Exists  bool     `json:"exists"`
 	}
+	data, err := os.ReadFile("testdata/package_functions.json")
+	suite.NoError(err)
+	var tests []testCase
+	err = json.Unmarshal(data, &tests)
+	suite.NoError(err)
+
 	for _, test := range tests {
-		t.Run(test.pkg, func(t *testing.T) {
-			pkg := Arch().Package(test.pkg)
-			assert.Equalf(t, lo.If(pkg == nil, false).Else(true), test.exists, test.pkg)
-			if pkg != nil {
-				funcs := lo.Map(pkg.Functions(), func(item Function, _ int) string {
-					return item.Name()
-				})
-				assert.ElementsMatch(t, test.funcs, funcs)
-				assert.ElementsMatch(t, test.imports, pkg.Imports())
+		suite.Run(test.Pkg, func() {
+			pkg := suite.arch.Package(test.Pkg)
+
+			// Build the actual result from the parsed code.
+			actual := testCase{
+				Pkg:    test.Pkg,
+				Exists: pkg != nil,
 			}
+			if pkg != nil {
+				actual.Funcs = lo.Map(pkg.Functions(), func(item Function, _ int) string {
+					return item.FullName()
+				})
+				sort.Strings(actual.Funcs) // Sort for consistent output
+				actual.Imports = pkg.Imports()
+				sort.Strings(actual.Imports) // Sort for consistent output
+			} else {
+				// Ensure slices are not nil for consistent JSON marshalling.
+				actual.Funcs = []string{}
+				actual.Imports = []string{}
+			}
+
+			// Perform assertions and capture the results.
+			suite.Equal(test.Exists, actual.Exists)
+			suite.ElementsMatch(test.Funcs, actual.Funcs)
+			suite.ElementsMatch(test.Imports, actual.Imports)
+
+			// If any assertion failed, it means the golden file is out of date.
+			// Log the new JSON snippet to make it easy for the developer to update it.
 		})
 	}
-
 }
 
-func TestAllSource(t *testing.T) {
-	assert.Equal(t, 21, len(Arch().GoFiles()))
+func (suite *ArtifactSuite) TestAllSource() {
+	suite.Equal(21, len(suite.arch.GoFiles()))
 }
 
-func TestMethodsOfType(t *testing.T) {
-	tests := []struct {
-		typName   string
-		exists    bool
-		functions []string
-	}{
-		{
-			typName: "internal/sample/service.UserService",
-			exists:  true,
-			functions: []string{
-				"GetUserById",
-				"GetUserByNameAndAddress",
-				"SearchUsersByFirstName",
-				"SearchUsersByLastName",
-			},
-		},
-		{
-			typName: "internal/sample/service.NameService",
-			exists:  true,
-			functions: []string{
-				"FirstNameI",
-				"LastNameI",
-			},
-		},
-		{
-			typName:   "internal/sample/service.NameService1",
-			exists:    false,
-			functions: []string{},
-		},
-		{
-			typName:   "internal/sample/service.Audit",
-			exists:    true,
-			functions: []string{},
-		},
+func (suite *ArtifactSuite) TestMethodsOfType() {
+	type testCase struct {
+		TypName string             `json:"typName"`
+		Exists  bool               `json:"exists"`
+		Methods []string           `json:"methods,omitempty"`
+		Params  map[string][]Param `json:"params,omitempty"`
+		Returns map[string][]Param `json:"returns,omitempty"`
 	}
-	for _, test := range tests {
-		t.Run(test.typName, func(t *testing.T) {
-			typ, ok := Arch().Type(test.typName)
-			assert.Equal(t, ok, test.exists)
+	data, err := os.ReadFile("testdata/methods_of_type.json")
+	suite.NoError(err)
+	var expectedCases []testCase
+	err = json.Unmarshal(data, &expectedCases)
+	suite.NoError(err)
+
+	for _, test := range expectedCases {
+		suite.Run(test.TypName, func() {
+			typ, ok := suite.arch.Type(test.TypName)
+
+			actual := testCase{
+				TypName: test.TypName,
+				Exists:  ok,
+				Params:  map[string][]Param{},
+				Returns: map[string][]Param{},
+			}
 			if ok {
-				funcs := lo.Map(typ.Methods(), func(item Function, _ int) string {
-					return item.Name()
+				actual.Methods = lo.Map(typ.Methods(), func(item Function, _ int) string {
+					return item.FullName()
 				})
-				assert.ElementsMatch(t, funcs, test.functions)
-				if f, ok := lo.Find(typ.Methods(), func(item Function) bool {
-					return strings.HasSuffix(item.Name(), "service.UserService).SearchUsersByFirstName")
-				}); ok {
-					assert.Equal(t, f.Params(), []Param{
-						{"firstName", "string"},
-					})
-					assert.Equal(t, f.Returns(), []string{
-						"error", "[]github.com/kcmvp/archunit/internal/sample/model.User",
-					})
+				sort.Strings(actual.Methods)
+				for _, method := range typ.Methods() {
+					if _, ok := test.Params[method.FullName()]; ok {
+						actual.Params[method.FullName()] = method.Params()
+					}
+					if _, ok := test.Returns[method.FullName()]; ok {
+						actual.Returns[method.FullName()] = method.Returns()
+					}
 				}
 			}
+
+			ok = suite.Equal(test.Exists, actual.Exists)
+			ok = suite.ElementsMatch(test.Methods, actual.Methods) && ok
+			ok = suite.Equal(test.Params, actual.Params) && ok
+			ok = suite.Equal(test.Returns, actual.Returns) && ok
 		})
 	}
 }
 
-func TestArtifact_AllPackages(t *testing.T) {
-	expPkgs := []string{"github.com/kcmvp/archunit/internal",
-		"github.com/kcmvp/archunit",
-		"github.com/kcmvp/archunit/internal/sample/model",
-		"github.com/kcmvp/archunit/internal/sample/repository",
-		"github.com/kcmvp/archunit/internal/sample/service",
-		"github.com/kcmvp/archunit/internal/sample/vutil",
-		"github.com/kcmvp/archunit/internal/sample/views",
-		"github.com/kcmvp/archunit/internal/sample/controller",
-		"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
-		"github.com/kcmvp/archunit/internal/sample/controller/module1",
-		"github.com/kcmvp/archunit/internal/sample/repository/ext",
-		"github.com/kcmvp/archunit/internal/sample/service/ext",
-		"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
-		"github.com/kcmvp/archunit/internal/sample/service/thirdparty",
+func (suite *ArtifactSuite) TestArtifact_AllPackages() {
+	type testCase struct {
+		Packages []string `json:"packages"`
 	}
-	keys := lo.Map(Arch().Packages(), func(item *Package, _ int) string {
+	data, err := os.ReadFile("testdata/all_packages.json")
+	suite.NoError(err)
+	var test testCase
+	err = json.Unmarshal(data, &test)
+	suite.NoError(err)
+
+	keys := lo.Map(suite.arch.Packages(true), func(item *Package, _ int) string {
 		return item.ID()
 	})
-	assert.ElementsMatch(t, expPkgs, keys)
+	sort.Strings(keys)
+
+	suite.ElementsMatch(test.Packages, keys)
 }
 
-func TestPkgTypes(t *testing.T) {
-	tests := []struct {
-		pkgName string
-		typs    []string
-		valid   bool
-		files   int
-	}{
-		{
-			pkgName: "github.com/kcmvp/archunit/internal",
-			typs: []string{
-				"github.com/kcmvp/archunit/internal.Artifact",
-				"github.com/kcmvp/archunit/internal.Function",
-				"github.com/kcmvp/archunit/internal.Package",
-				"github.com/kcmvp/archunit/internal.Param",
-				"github.com/kcmvp/archunit/internal.ParseMode",
-				"github.com/kcmvp/archunit/internal.Type",
-				"github.com/kcmvp/archunit/internal.Variable",
-			},
-			valid: true,
-			files: 1,
-		},
-		{
-			pkgName: "github.com/kcmvp/archunit/internal/sample/service",
-			typs: []string{
-				"github.com/kcmvp/archunit/internal/sample/service.Audit",
-				"github.com/kcmvp/archunit/internal/sample/service.FullNameImpl",
-				"github.com/kcmvp/archunit/internal/sample/service.NameService",
-				"github.com/kcmvp/archunit/internal/sample/service.NameServiceImpl",
-				"github.com/kcmvp/archunit/internal/sample/service.UserService",
-			},
-			valid: true,
-			files: 2,
-		},
+func (suite *ArtifactSuite) TestPkgTypes() {
+	type interfaceCheck struct {
+		Name        string `json:"name"`
+		IsInterface bool   `json:"isInterface"`
 	}
-	for _, test := range tests {
-		t.Run(test.pkgName, func(t *testing.T) {
-			pkg := Arch().Package(test.pkgName)
-			assert.Equal(t, lo.If(pkg == nil, false).Else(true), test.valid)
-			assert.Equal(t, len(test.typs), len(pkg.Types()))
-			typs := lo.Map(pkg.Types(), func(item Type, _ int) string {
-				return item.Name()
-			})
-			assert.ElementsMatch(t, test.typs, typs)
-			assert.Equal(t, test.files, len(pkg.GoFiles()))
-			if typ, ok := lo.Find(pkg.Types(), func(typ Type) bool {
-				return strings.HasSuffix(typ.Name(), "sample/service.NameService")
-			}); ok {
-				assert.True(t, typ.Interface())
+	type testCase struct {
+		PkgName        string          `json:"pkgName"`
+		Typs           []string        `json:"typs"`
+		Valid          bool            `json:"valid"`
+		Files          int             `json:"files"`
+		InterfaceCheck *interfaceCheck `json:"interfaceCheck,omitempty"`
+	}
+	data, err := os.ReadFile("testdata/pkg_types.json")
+	suite.NoError(err)
+	var expectedCases []testCase
+	err = json.Unmarshal(data, &expectedCases)
+	suite.NoError(err)
+
+	for _, test := range expectedCases {
+		suite.Run(test.PkgName, func() {
+			pkg := suite.arch.Package(test.PkgName)
+
+			actual := testCase{
+				PkgName: test.PkgName,
+				Valid:   pkg != nil,
 			}
+
+			if pkg != nil {
+				actual.Typs = lo.Map(pkg.Types(), func(item Type, _ int) string {
+					return item.Name()
+				})
+				sort.Strings(actual.Typs)
+				actual.Files = len(pkg.GoFiles())
+
+				if test.InterfaceCheck != nil {
+					typ, ok := suite.arch.Type(test.InterfaceCheck.Name)
+					suite.True(ok)
+					actual.InterfaceCheck = &interfaceCheck{
+						Name:        test.InterfaceCheck.Name,
+						IsInterface: typ.Interface(),
+					}
+				}
+			}
+
+			ok := suite.Equal(test.Valid, actual.Valid)
+			ok = suite.ElementsMatch(test.Typs, actual.Typs) && ok
+			ok = suite.Equal(test.Files, actual.Files) && ok
+			ok = suite.Equal(test.InterfaceCheck, actual.InterfaceCheck) && ok
 		})
 	}
 }
 
-func TestArtifact(t *testing.T) {
-	assert.NotEmpty(t, Arch().RootDir())
-	assert.Equal(t, "github.com/kcmvp/archunit", Arch().Module())
+func (suite *ArtifactSuite) TestArtifact() {
+	suite.NotEmpty(suite.arch.RootDir())
+	suite.Equal("github.com/kcmvp/archunit", suite.arch.Module())
 }
 
-func TestArchType(t *testing.T) {
-	size := len(Arch().Packages(false))
-	typ, ok := Arch().Type("github.com/samber/lo.Entry[K comparable, V any]")
-	assert.True(t, ok)
-	assert.Equal(t, "github.com/samber/lo.Entry[K comparable, V any]", typ.Name())
-	assert.True(t, len(Arch().Packages(false)) > size)
+func (suite *ArtifactSuite) TestArchType() {
+	size := len(suite.arch.Packages(false))
+	typ, ok := suite.arch.Type("github.com/samber/lo.Entry[K comparable, V any]")
+	suite.True(ok)
+	suite.Equal("github.com/samber/lo.Entry[K comparable, V any]", typ.Name())
+	suite.True(len(suite.arch.Packages(false)) > size)
 }
 
-func TestArchFuncType(t *testing.T) {
-	tests := []struct {
-		name string
-		typ  string
-		exp  bool
-	}{
-		{
-			name: "valid",
-			typ:  "internal/sample/controller.CustomizeHandler",
-			exp:  true,
-		},
-		{
-			name: "invalid",
-			typ:  "internal/sample/controller.AppContext",
-			exp:  false,
-		},
+func (suite *ArtifactSuite) TestArchFuncType() {
+	type testCase struct {
+		Name       string `json:"name"`
+		Typ        string `json:"typ"`
+		IsFuncType bool   `json:"isFuncType"`
 	}
+	data, err := os.ReadFile("testdata/arch_func_type.json")
+	suite.NoError(err)
+	var tests []testCase
+	err = json.Unmarshal(data, &tests)
+	suite.NoError(err)
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			typ, ok := Arch().Type(test.typ)
-			assert.True(t, ok)
-			assert.Equal(t, test.exp, typ.FuncType())
+		suite.Run(test.Name, func() {
+			typ, ok := suite.arch.Type(test.Typ)
+			suite.True(ok)
+			actual := testCase{
+				Name:       test.Name,
+				Typ:        test.Typ,
+				IsFuncType: typ.FuncType(),
+			}
+			ok = suite.Equal(test.IsFuncType, actual.IsFuncType)
 		})
 	}
 }

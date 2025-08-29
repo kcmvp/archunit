@@ -3,12 +3,11 @@ package internal
 import (
 	"fmt"
 	"go/types"
-	"log"
-	"os/exec"
 	"strings"
 	"sync"
 
 	"github.com/fatih/color"
+	"github.com/kcmvp/archunit/internal/utils"
 	"github.com/samber/lo"
 	lop "github.com/samber/lo/parallel"
 
@@ -70,13 +69,8 @@ func (artifact *Artifact) Module() string {
 
 func Arch() *Artifact {
 	once.Do(func() {
-		cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}:{{.Path}}")
-		output, err := cmd.Output()
-		if err != nil {
-			log.Fatal("Error executing go list command:", err)
-		}
-		item := strings.Split(strings.TrimSpace(string(output)), ":")
-		arch = &Artifact{rootDir: item[0], module: item[1]}
+		rootDir, module := utils.ProjectInfo()
+		arch = &Artifact{rootDir: rootDir, module: module}
 		cfg := &packages.Config{
 			Mode: packages.NeedName | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedFiles | packages.NeedTypesInfo | packages.NeedDeps | packages.NeedImports | packages.NeedSyntax,
 			Dir:  arch.rootDir,
@@ -305,10 +299,12 @@ func (f Function) GoFile() string {
 
 func (f Function) Params() []Param {
 	var params []Param
-	if tuple := f.raw.Type().(*types.Signature).Params(); tuple != nil {
-		for i := tuple.Len() - 1; i >= 0; i-- {
-			param := tuple.At(i)
-			params = append(params, Param{A: param.Name(), B: param.Type().String()})
+	if sig, ok := f.raw.Type().(*types.Signature); ok {
+		if tuple := sig.Params(); tuple != nil {
+			for i := 0; i < tuple.Len(); i++ {
+				param := tuple.At(i)
+				params = append(params, Param{A: param.Name(), B: param.Type().String()})
+			}
 		}
 	}
 	return params
@@ -316,10 +312,12 @@ func (f Function) Params() []Param {
 
 func (f Function) Returns() []Param {
 	var rt []Param
-	if rs := f.raw.Type().(*types.Signature).Results(); rs != nil {
-		for i := rs.Len() - 1; i >= 0; i-- {
-			param := rs.At(i)
-			rt = append(rt, Param{A: param.Name(), B: param.Type().String()})
+	if sig, ok := f.raw.Type().(*types.Signature); ok {
+		if rs := sig.Results(); rs != nil {
+			for i := 0; i < rs.Len(); i++ {
+				param := rs.At(i)
+				rt = append(rt, Param{A: param.Name(), B: param.Type().String()})
+			}
 		}
 	}
 	return rt
