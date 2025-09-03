@@ -118,6 +118,10 @@ type ArchSuite struct {
 	logPrefixCache string // Cache for the log file prefix.
 }
 
+func (suite *ArchSuite) TT() *T {
+	return suite.tt
+}
+
 func (suite *ArchSuite) SetS(s suite.TestingSuite) {
 	suite.Suite.SetS(s)
 	suite.mu.Lock()

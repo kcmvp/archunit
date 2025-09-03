@@ -9,8 +9,6 @@ import (
 	"github.com/fatih/color"
 	"github.com/kcmvp/archunit/internal/utils"
 	"github.com/samber/lo"
-	lop "github.com/samber/lo/parallel"
-
 	"golang.org/x/tools/go/packages"
 )
 
@@ -80,9 +78,32 @@ func Arch() *Artifact {
 			color.Red("Error loading project: %w", err)
 			return
 		}
-		lop.ForEach(pkgs, func(pkg *packages.Package, _ int) {
+
+		// Use a map to track visited packages and avoid redundant parsing.
+		// This is necessary because the dependency graph can have cycles.
+		visited := map[string]bool{}
+		var mu sync.Mutex
+
+		// Define a recursive function to traverse the dependency graph.
+		var parseAll func(*packages.Package)
+		parseAll = func(pkg *packages.Package) {
+			mu.Lock()
+			if _, ok := visited[pkg.ID]; ok {
+				mu.Unlock()
+				return
+			}
+			visited[pkg.ID] = true
+			mu.Unlock()
+
 			arch.pkgs.Store(pkg.ID, parse(pkg, ParseCon|ParseFun|ParseTyp|ParseVar))
-		})
+			for _, imp := range pkg.Imports {
+				parseAll(imp)
+			}
+		}
+		// Start the recursive parsing from the top-level packages of the project.
+		for _, pkg := range pkgs {
+			parseAll(pkg)
+		}
 	})
 	return arch
 }
@@ -104,9 +125,9 @@ func parse(pkg *packages.Package, mode ParseMode) *Package {
 			}
 		case *types.TypeName:
 			if ParseTyp&mode == ParseTyp {
-				if _, ok := vType.Type().(*types.Named); ok {
-					archPkg.types = append(archPkg.types, Type{raw: vType})
-				}
+				// The previous check for *types.Named was too restrictive.
+				// Any TypeName object represents a type definition we want to track.
+				archPkg.types = append(archPkg.types, Type{raw: vType})
 			}
 		case *types.Var:
 			if ParseVar&mode == ParseVar {
@@ -175,27 +196,51 @@ func (artifact *Artifact) GoFiles() []string {
 // typName type name. You can just use short name of types in current module eg: internal/sample/service.UserService
 // for the types from dependency a full qualified type name must be supplied eg: github.com/gin-gonic/gin.Context
 func (artifact *Artifact) Type(typName string) (Type, bool) {
-	prefix := strings.Split(typName, "/")[0]
-	typName = lo.If(strings.Contains(prefix, "."), typName).Else(fmt.Sprintf("%s/%s", artifact.Module(), typName))
-	pkgName := strings.Join(lo.DropRight(strings.Split(typName, "."), 1), ".")
-	pkg, ok := artifact.pkgs.Load(pkgName)
-	if !ok {
-		for _, e := range artifact.Packages() {
-			if strings.HasPrefix(e.ID(), artifact.Module()) {
-				if raw, ok := e.raw.Imports[pkgName]; ok {
-					pkg = parse(raw, ParseTyp|ParseFun)
-					artifact.pkgs.Store(pkgName, pkg)
-					break
-				}
+	// Separate package path from type name
+	lastDot := strings.LastIndex(typName, ".")
+	if lastDot == -1 {
+		// No package path, just a type name. This is ambiguous.
+		return Type{}, false
+	}
+	pathPart := typName[:lastDot]
+	namePart := typName[lastDot+1:]
+
+	isFullyQualified := strings.Contains(strings.Split(pathPart, "/")[0], ".")
+
+	var matchedTypes []Type
+	artifact.pkgs.Range(func(key, value any) bool {
+		pkgID := key.(string)
+		pkg := value.(*Package)
+
+		pathMatches := false
+		if isFullyQualified {
+			if pkgID == pathPart {
+				pathMatches = true
+			}
+		} else {
+			// For short names, search only within the current module.
+			if strings.HasPrefix(pkgID, artifact.Module()) && strings.HasSuffix(pkgID, "/"+pathPart) {
+				pathMatches = true
 			}
 		}
-		if pkg == nil {
-			return Type{}, false
+
+		if pathMatches {
+			// Found a candidate package. Now look for the type by its short name.
+			typ, found := lo.Find(pkg.types, func(t Type) bool {
+				return t.raw.Name() == namePart
+			})
+			if found {
+				matchedTypes = append(matchedTypes, typ)
+			}
 		}
-	}
-	return lo.Find(pkg.(*Package).types, func(typ Type) bool {
-		return typ.Name() == typName
+		return true
 	})
+
+	// To be safe, we should only return a result if it's unambiguous.
+	if len(matchedTypes) == 1 {
+		return matchedTypes[0], true
+	}
+	return Type{}, false
 }
 
 func (pkg *Package) Raw() *packages.Package {
@@ -235,12 +280,22 @@ func (pkg *Package) Name() string {
 }
 
 func (typ Type) Interface() bool {
-	_, ok := typ.Raw().Underlying().(*types.Interface)
+	// We need to handle both defined interfaces (which are *Named) and aliases to interfaces.
+	// The most robust way is to check the underlying type.
+	named := typ.Raw()
+	if named == nil {
+		_, ok := typ.raw.Type().Underlying().(*types.Interface)
+		return ok
+	}
+	_, ok := named.Underlying().(*types.Interface)
 	return ok
 }
 
 func (typ Type) Package() string {
-	return typ.Raw().Obj().Pkg().Path()
+	if pkg := typ.raw.Pkg(); pkg != nil {
+		return pkg.Path()
+	}
+	return ""
 }
 
 func (typ Type) FuncType() bool {
@@ -249,11 +304,16 @@ func (typ Type) FuncType() bool {
 }
 
 func (typ Type) Raw() *types.Named {
-	return typ.raw.Type().(*types.Named)
+	// Not all TypeNames point to a Named type (e.g., aliases to built-ins or func signatures).
+	// We perform a safe type assertion here.
+	named, _ := typ.raw.Type().(*types.Named)
+	return named
 }
 
 func (typ Type) Name() string {
-	return typ.Raw().String()
+	// For a defined type, raw.String() gives the fully qualified name.
+	// This is what we want.
+	return typ.raw.String()
 }
 
 func (typ Type) GoFile() string {
