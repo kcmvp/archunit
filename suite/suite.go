@@ -1,4 +1,4 @@
-package promote
+package suite
 
 import (
 	"bytes"
@@ -173,7 +173,7 @@ func (suite *ArchSuite) SetT(t *testing.T) {
 			// If it failed, write the buffered logs to a file.
 			prefix := suite.logPrefix()
 			if prefix == "" {
-				// Should not happen in a normal test method run, but as a safeguard.
+				// Rules not happen in a normal test method run, but as a safeguard.
 				t.Errorf("promote: could not determine log prefix")
 				return
 			}
@@ -284,7 +284,7 @@ func (suite *ArchSuite) NotEmpty(object any, msgAndArgs ...any) bool {
 	return assert.NotEmpty(suite.tt, object, msgAndArgs...)
 }
 
-// Run is a convenience function that runs a test suite that embeds promote.ArchSuite.
+// Run is a convenience function that runs a test suite that embeds better.ArchSuite.
 func Run(t *testing.T, as suite.TestingSuite) {
 	cleanTestLog(as)
 	suite.Run(t, as)

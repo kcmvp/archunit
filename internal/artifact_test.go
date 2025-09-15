@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kcmvp/archunit/promote"
+	"github.com/kcmvp/archunit/suite"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 )
 
 type ArtifactSuite struct {
-	promote.ArchSuite
+	suite.ArchSuite
 	arch *Artifact
 }
 
@@ -22,7 +22,7 @@ func (suite *ArtifactSuite) SetupSuite() {
 }
 
 func TestArtifactSuite(t *testing.T) {
-	promote.Run(t, new(ArtifactSuite))
+	suite.Run(t, new(ArtifactSuite))
 }
 
 func (suite *ArtifactSuite) TestAllConstants() {

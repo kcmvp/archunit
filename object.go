@@ -1,14 +1,16 @@
 package archunit
 
 import (
+	"errors"
 	"fmt"
 	"go/types"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/kcmvp/archunit/internal"
 	"github.com/samber/lo"
-	"github.com/samber/mo"
 )
 
 var (
@@ -18,16 +20,36 @@ var (
 	_ ArchObject = (*Function)(nil)
 	_ ArchObject = (*Type)(nil)
 	_ ArchObject = (*Variable)(nil)
+	_ ArchObject = (*File)(nil)
 
-	// Statically check that Layer, Package and Type are Referable in the dependency graph.
-	_    Referable  = Package{}
-	_    Referable  = (*Layer)(nil)
-	_    Referable  = Type{}
-	_    Exportable = Type{}
-	_    Exportable = Function{}
-	_    Exportable = Variable{}
-	arch *architecture
-	once sync.Once
+	// Statically check that Referable implementations satisfy the interface.
+	_ Referable = (*Package)(nil)
+	_ Referable = (*Layer)(nil)
+	_ Referable = (*Type)(nil)
+	_ Referable = (*LayerSelection)(nil)
+	_ Referable = (*PackageSelection)(nil)
+	_ Referable = (*TypeSelection)(nil)
+
+	// Statically check that selection types implement the ReferableSelection interface.
+	_ ReferableSelection[Layer]   = (*LayerSelection)(nil)
+	_ ReferableSelection[Package] = (*PackageSelection)(nil)
+	_ ReferableSelection[Type]    = (*TypeSelection)(nil)
+
+	// Statically check that Exportable implementations satisfy the interface.
+	_ Exportable = (*Type)(nil)
+	_ Exportable = (*Function)(nil)
+	_ Exportable = (*Variable)(nil)
+	_ Exportable = (*FunctionSelection)(nil)
+	_ Exportable = (*VariableSelection)(nil)
+	_ Exportable = (*TypeSelection)(nil)
+
+	// Statically check that selection types implement the ExportableSelection interface.
+	_ ExportableSelection[Function] = (*FunctionSelection)(nil)
+	_ ExportableSelection[Variable] = (*VariableSelection)(nil)
+	_ ExportableSelection[Type]     = (*TypeSelection)(nil)
+
+	_arch *architecture
+	once  sync.Once
 )
 
 // Param represents a function parameter or return value, with a name and a type.
@@ -41,6 +63,7 @@ type ArchObject interface {
 type Architecture interface {
 	// seal is a private method to prevent external implementations.
 	architecture()
+	Rules(checks ...Checker) error
 }
 
 // architecture is the concrete implementation of the Architecture interface.
@@ -49,7 +72,53 @@ type architecture struct {
 	layers   map[string]*Layer
 }
 
-func (a *architecture) architecture() {}
+func (arch *architecture) architecture() {}
+
+func (arch *architecture) Rules(checks ...Checker) error {
+	violationsByCategory := map[ViolationCategory][]string{}
+	var otherErrors []string
+
+	for _, c := range checks {
+		if err := c.check(arch); err != nil {
+			var v *ViolationError
+			if errors.As(err, &v) {
+				violationsByCategory[v.Category()] = append(violationsByCategory[v.Category()], v.Violations...)
+			} else {
+				otherErrors = append(otherErrors, err.Error())
+			}
+		}
+	}
+
+	if len(violationsByCategory) == 0 && len(otherErrors) == 0 {
+		return nil
+	}
+
+	var report strings.Builder
+	report.WriteString("## Architecture violations found\n")
+
+	// To ensure a consistent order, we sort the categories before printing.
+	categories := lo.Keys(violationsByCategory)
+	sort.Slice(categories, func(i, j int) bool {
+		return categories[i] < categories[j]
+	})
+
+	for _, category := range categories {
+		violations := violationsByCategory[category]
+		report.WriteString(fmt.Sprintf("### %s Conventions\n", category))
+		for _, v := range violations {
+			report.WriteString(fmt.Sprintf("- %s\n", v))
+		}
+	}
+
+	if len(otherErrors) > 0 {
+		report.WriteString("### General Errors\n")
+		for _, err := range otherErrors {
+			report.WriteString(fmt.Sprintf("- %s\n", err))
+		}
+	}
+
+	return fmt.Errorf(report.String())
+}
 
 // Referable is a marker interface for architectural objects that can be
 // part of a dependency graph, such as packages, types, or layers.
@@ -66,25 +135,12 @@ type Exportable interface {
 	exportable()
 }
 
-// Checker is an interface that wraps the check method.
-// it's a wrapper of Rule[T ArchObject]
-type Checker interface {
-	check(arch Architecture) error
-}
-
-// CheckerFunc is an adapter to allow ordinary functions to be used as Checkers.
-type CheckerFunc func(arch Architecture) error
-
-func (f CheckerFunc) check(arch Architecture) error {
-	return f(arch)
-}
-
-// Project is the single entry point for an architecture test.
+// ArchUnit is the single entry point for an arch test.
 // architectural checks within a Go project.
 // It takes a description of the project and a set of defined layers.
 // The returned function then accepts a slice of `Checker`s to execute, collecting all violations.
 // If all checks pass, it returns the parsed Architecture for further use.
-func Project(description string, layers ...*Layer) func(checks ...Checker) mo.Result[Architecture] {
+func ArchUnit(layers ...*Layer) Architecture {
 	// Validate layers for uniqueness before initializing the project.
 	// This is the correct place for configuration validation.
 	names := map[string]bool{}
@@ -97,25 +153,14 @@ func Project(description string, layers ...*Layer) func(checks ...Checker) mo.Re
 	}
 
 	once.Do(func() {
-		arch = &architecture{
+		_arch = &architecture{
 			artifact: internal.Arch(),
 			layers: lo.SliceToMap(layers, func(l *Layer) (string, *Layer) {
 				return l.name, l
 			}),
 		}
 	})
-	return func(checks ...Checker) mo.Result[Architecture] {
-		var errs []string
-		for _, c := range checks {
-			if err := c.check(arch); err != nil {
-				errs = append(errs, err.Error())
-			}
-		}
-		if len(errs) > 0 {
-			return mo.Err[Architecture](fmt.Errorf("architecture violations found:\n- %s", strings.Join(errs, "\n- ")))
-		}
-		return mo.Ok[Architecture](arch)
-	}
+	return _arch
 }
 
 type Layer struct {
@@ -123,23 +168,43 @@ type Layer struct {
 	rootFolder string
 }
 
-func (l *Layer) Name() string { return l.name }
+func (l Layer) Name() string { return l.name }
 
-// DefineLayer defines a Layer with the given name and a single, cohesive root folder.
+// ArchLayer defines a Layer with the given name and a single, cohesive root folder.
 // This encourages the best practice of designing layers that are located in a single, clearly defined folder tree.
 // The rootFolder path can include the '...' wildcard to match all sub-packages. It checks that the name and root folder are unique.
-func DefineLayer(name string, rootFolder string) *Layer {
-	// DefineLayer is now a simple, pure factory function.
+func ArchLayer(name string, rootFolder string) *Layer {
+	// ArchLayer is now a simple, pure factory function.
 	return &Layer{name: name, rootFolder: rootFolder}
 }
 
 // referable implements the Referable interface.
-func (l *Layer) referable() {}
+func (l Layer) referable() {}
 
 type Selection[T ArchObject] interface {
 	Objects() []T
-	AssertThat(rules ...Rule[T]) Checker
+	NameShould(func(T) (bool, string)) Checker
+	NameShouldNot(func(T) (bool, string)) Checker
 	Error() error
+	apply(rules ...Rule[T]) Checker
+}
+
+// ReferableSelection represents a selection of objects that can have dependency apply applied.
+type ReferableSelection[T Referable] interface {
+	Selection[T]
+	ShouldNotRefer(forbidden ...Referable) Checker
+	ShouldOnlyRefer(allowed ...Referable) Checker
+	ShouldNotBeReferredBy(forbidden ...Referable) Checker
+	ShouldOnlyBeReferredBy(allowed ...Referable) Checker
+}
+
+// ExportableSelection represents a selection of objects that can have visibility apply applied.
+type ExportableSelection[T Exportable] interface {
+	Selection[T]
+	ShouldBeExported() Checker
+	ShouldNotBeExported() Checker
+	ShouldResideInPackages(packagePatterns ...string) Checker
+	ShouldResideInLayers(layers ...*Layer) Checker
 }
 
 // selection is the private, concrete implementation of the generic Selection interface.
@@ -149,14 +214,14 @@ type selection[T ArchObject] struct {
 	err     error
 }
 
-func (s *selection[T]) Objects() []T {
+func (s selection[T]) Objects() []T {
 	if s.err != nil {
 		panic(s.err)
 	}
 	return s.objects
 }
 
-func (s *selection[T]) AssertThat(rules ...Rule[T]) Checker {
+func (s selection[T]) apply(rules ...Rule[T]) Checker {
 	return CheckerFunc(func(arch Architecture) error {
 		if s.err != nil {
 			return s.err
@@ -170,285 +235,404 @@ func (s *selection[T]) AssertThat(rules ...Rule[T]) Checker {
 	})
 }
 
-func (s *selection[T]) Error() error {
+func (s selection[T]) NameShould(assertion func(T) (bool, string)) Checker {
+	return s.apply(NameShould(MatcherFunc[T](assertion)))
+}
+
+func (s selection[T]) NameShouldNot(assertion func(T) (bool, string)) Checker {
+	return s.apply(NameShouldNot(MatcherFunc[T](assertion)))
+}
+
+func (s selection[T]) Error() error {
 	return s.err
 }
 
 type LayerSelection struct {
-	*selection[*Layer]
+	selection[Layer]
 }
 
-// Packages selects packages within the layers of the current LayerSelection.
-// It can optionally filter packages based on provided Matchers.
-// The returned PackageSelection allows applying rules or further refining the selection.
-// If the LayerSelection encountered an error, the returned PackageSelection will also carry that error.
+func (s LayerSelection) Name() string {
+	return "Layer Selection"
+}
 
-func (s *LayerSelection) Packages(matchers ...Matcher) *PackageSelection {
+func (s LayerSelection) referable() {}
+
+func (s LayerSelection) ShouldNotRefer(forbidden ...Referable) Checker {
+	return s.apply(ShouldNotRefer[Layer](forbidden...))
+}
+
+func (s LayerSelection) ShouldOnlyRefer(allowed ...Referable) Checker {
+	return s.apply(ShouldOnlyRefer[Layer](allowed...))
+}
+
+func (s LayerSelection) ShouldNotBeReferredBy(forbidden ...Referable) Checker {
+	return s.apply(ShouldNotBeReferredBy[Layer](forbidden...))
+}
+
+func (s LayerSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Checker {
+	return s.apply(ShouldOnlyBeReferredBy[Layer](allowed...))
+}
+
+func (s LayerSelection) Packages(matchers ...Matcher[Package]) *PackageSelection {
 	if s.err != nil {
-		return &PackageSelection{&selection[Package]{err: s.err}}
+		return &PackageSelection{selection: selection[Package]{err: s.err}}
 	}
-	patterns := lo.Map(s.objects, func(layer *Layer, _ int) string {
+	patterns := lo.Map(s.objects, func(layer Layer, _ int) string {
 		return layer.rootFolder
 	})
-	pkgs, err := selectPackagesByPattern(s.arch, patterns...)
+
+	allPkgsInLayers, err := selectPackagesByPattern(s.arch, patterns...)
 	if err != nil {
-		return &PackageSelection{&selection[Package]{err: err}}
-	}
-	// Now, filter these packages by the provided matchers, if any.
-	if len(matchers) > 0 {
-		pkgs = lo.Filter(pkgs, func(p *internal.Package, _ int) bool {
-			return lo.SomeBy(matchers, func(m Matcher) bool {
-				return m.Match(p.ID())
-			})
-		})
+		return &PackageSelection{selection: selection[Package]{err: err}}
 	}
 
-	publicPackages := lo.Map(pkgs, func(p *internal.Package, _ int) Package {
+	publicPackages := lo.Map(allPkgsInLayers, func(p *internal.Package, _ int) Package {
 		return Package{name: p.ID()}
 	})
-	return &PackageSelection{&selection[Package]{arch: s.arch, objects: publicPackages}}
+
+	matcher := toMatcher(matchers)
+	filteredPackages := lo.Filter(publicPackages, func(p Package, _ int) bool {
+		ok, _ := matcher.Match(p)
+		return ok
+	})
+	return &PackageSelection{selection: selection[Package]{arch: s.arch, objects: filteredPackages}}
 }
 
-func (s *LayerSelection) Types(matchers ...Matcher) *TypeSelection {
-	return s.Packages().Types(matchers...) // Reuse the chaining logic
+func (s LayerSelection) Types(matchers ...Matcher[Type]) *TypeSelection {
+	return s.Packages().Types(matchers...)
 }
 
-func (s *LayerSelection) Functions(matchers ...Matcher) *FunctionSelection {
-	return s.Packages().Functions(matchers...) // Reuse the chaining logic
+func (s LayerSelection) Functions(matchers ...Matcher[Function]) *FunctionSelection {
+	return s.Packages().Functions(matchers...)
 }
 
 type PackageSelection struct {
-	*selection[Package]
+	selection[Package]
 }
 
-func (s *PackageSelection) Types(matchers ...Matcher) *TypeSelection {
-	if s.err != nil {
-		return &TypeSelection{&selection[Type]{err: s.err}}
-	}
-	var selectedTypes []Type
-	for _, pkg := range s.objects {
-		internalPkg := s.arch.artifact.Package(pkg.name)
-		if internalPkg == nil {
-			continue // Should not happen if selection is correct
-		}
-		for _, internalType := range internalPkg.Types() {
-			if len(matchers) == 0 || lo.SomeBy(matchers, func(m Matcher) bool { return m.Match(internalType.Name()) }) {
-				selectedTypes = append(selectedTypes, Type{name: internalType.Name(), pkg: internalType.Package()})
-			}
-		}
-	}
-	return &TypeSelection{&selection[Type]{arch: s.arch, objects: selectedTypes}}
+func (s PackageSelection) Name() string {
+	return "Package Selection"
 }
 
-func (s *PackageSelection) Functions(matchers ...Matcher) *FunctionSelection {
-	if s.err != nil {
-		return &FunctionSelection{&selection[Function]{err: s.err}}
-	}
-	var selectedFunctions []Function
-	for _, pkg := range s.objects {
-		internalPkg := s.arch.artifact.Package(pkg.name)
-		if internalPkg == nil {
-			continue
-		}
-		for _, internalFunc := range internalPkg.Functions() {
-			if len(matchers) == 0 || lo.SomeBy(matchers, func(m Matcher) bool { return m.Match(internalFunc.FullName()) }) {
-				selectedFunctions = append(selectedFunctions, Function{name: internalFunc.FullName(), pkg: internalFunc.Package()})
-			}
-		}
-	}
-	return &FunctionSelection{&selection[Function]{arch: s.arch, objects: selectedFunctions}}
+func (s PackageSelection) referable() {}
+
+func (s PackageSelection) ShouldNotRefer(forbidden ...Referable) Checker {
+	return s.apply(ShouldNotRefer[Package](forbidden...))
 }
 
-func (s *PackageSelection) Variables(matchers ...Matcher) *VariableSelection {
+func (s PackageSelection) ShouldOnlyRefer(allowed ...Referable) Checker {
+	return s.apply(ShouldOnlyRefer[Package](allowed...))
+}
+
+func (s PackageSelection) ShouldNotBeReferredBy(forbidden ...Referable) Checker {
+	return s.apply(ShouldNotBeReferredBy[Package](forbidden...))
+}
+
+func (s PackageSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Checker {
+	return s.apply(ShouldOnlyBeReferredBy[Package](allowed...))
+}
+
+func (s PackageSelection) Types(matchers ...Matcher[Type]) *TypeSelection {
 	if s.err != nil {
-		return &VariableSelection{&selection[Variable]{err: s.err}}
+		return &TypeSelection{selection: selection[Type]{err: s.err}}
 	}
-	var selectedVars []Variable
-	for _, pkg := range s.objects {
+	allTypes := lo.FlatMap(s.objects, func(pkg Package, _ int) []Type {
 		internalPkg := s.arch.artifact.Package(pkg.name)
 		if internalPkg == nil {
-			continue
+			return nil
 		}
-		for _, v := range internalPkg.Variables() {
-			if len(matchers) == 0 || lo.SomeBy(matchers, func(m Matcher) bool { return m.Match(v.FullName()) }) {
-				selectedVars = append(selectedVars, Variable{name: v.FullName(), pkg: v.Package()})
-			}
-		}
+		return lo.Map(internalPkg.Types(), func(t internal.Type, _ int) Type {
+			return Type{name: t.Name(), pkg: t.Package(), internalType: t}
+		})
+	})
+
+	matcher := toMatcher(matchers)
+	selectedTypes := lo.Filter(allTypes, func(t Type, _ int) bool {
+		ok, _ := matcher.Match(t)
+		return ok
+	})
+	return &TypeSelection{selection: selection[Type]{arch: s.arch, objects: selectedTypes}}
+}
+
+func (s PackageSelection) Functions(matchers ...Matcher[Function]) *FunctionSelection {
+	if s.err != nil {
+		return &FunctionSelection{selection: selection[Function]{err: s.err}}
 	}
-	return &VariableSelection{&selection[Variable]{arch: s.arch, objects: selectedVars}}
+	allFuncs := lo.FlatMap(s.objects, func(pkg Package, _ int) []Function {
+		internalPkg := s.arch.artifact.Package(pkg.name)
+		if internalPkg == nil {
+			return nil
+		}
+		return lo.Map(internalPkg.Functions(), func(f internal.Function, _ int) Function {
+			return Function{name: f.FullName(), pkg: f.Package(), internalFunc: f}
+		})
+	})
+	matcher := toMatcher(matchers)
+	selectedFunctions := lo.Filter(allFuncs, func(f Function, _ int) bool {
+		ok, _ := matcher.Match(f)
+		return ok
+	})
+	return &FunctionSelection{selection: selection[Function]{arch: s.arch, objects: selectedFunctions}}
+}
+
+func (s PackageSelection) Variables(matchers ...Matcher[Variable]) *VariableSelection {
+	if s.err != nil {
+		return &VariableSelection{selection: selection[Variable]{err: s.err}}
+	}
+	allVars := lo.FlatMap(s.objects, func(pkg Package, _ int) []Variable {
+		internalPkg := s.arch.artifact.Package(pkg.name)
+		if internalPkg == nil {
+			return nil
+		}
+		return lo.Map(internalPkg.Variables(), func(v internal.Variable, _ int) Variable {
+			return Variable{name: v.FullName(), pkg: v.Package(), internalVar: v}
+		})
+	})
+	matcher := toMatcher(matchers)
+	selectedVars := lo.Filter(allVars, func(v Variable, _ int) bool {
+		ok, _ := matcher.Match(v)
+		return ok
+	})
+	return &VariableSelection{selection: selection[Variable]{arch: s.arch, objects: selectedVars}}
 }
 
 type TypeSelection struct {
-	*selection[Type]
+	selection[Type]
 }
 
-func (s *TypeSelection) Methods(matchers ...Matcher) *FunctionSelection {
+func (s TypeSelection) Name() string {
+	return "Type Selection"
+}
+
+func (s TypeSelection) referable() {}
+
+func (s TypeSelection) exportable() {}
+
+func (s TypeSelection) ShouldNotRefer(forbidden ...Referable) Checker {
+	return s.apply(ShouldNotRefer[Type](forbidden...))
+}
+
+func (s TypeSelection) ShouldOnlyRefer(allowed ...Referable) Checker {
+	return s.apply(ShouldOnlyRefer[Type](allowed...))
+}
+
+func (s TypeSelection) ShouldNotBeReferredBy(forbidden ...Referable) Checker {
+	return s.apply(ShouldNotBeReferredBy[Type](forbidden...))
+}
+
+func (s TypeSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Checker {
+	return s.apply(ShouldOnlyBeReferredBy[Type](allowed...))
+}
+
+func (s TypeSelection) ShouldBeExported() Checker {
+	return s.apply(ShouldBeExported[Type]())
+}
+
+func (s TypeSelection) ShouldNotBeExported() Checker {
+	return s.apply(ShouldNotBeExported[Type]())
+}
+
+func (s TypeSelection) ShouldResideInPackages(packagePatterns ...string) Checker {
+	return s.apply(ShouldResideInPackages[Type](packagePatterns...))
+}
+
+func (s TypeSelection) ShouldResideInLayers(layers ...*Layer) Checker {
+	return s.apply(ShouldResideInLayers[Type](layers...))
+}
+
+func (s TypeSelection) Methods(matchers ...Matcher[Function]) *FunctionSelection {
 	if s.err != nil {
-		return &FunctionSelection{&selection[Function]{err: s.err}}
+		return &FunctionSelection{selection: selection[Function]{err: s.err}}
 	}
-	var selectedFunctions []Function
-	for _, typ := range s.objects {
-		internalType, ok := s.arch.artifact.Type(typ.name)
-		if !ok {
-			continue
-		}
-		for _, internalMethod := range internalType.Methods() {
-			if len(matchers) == 0 || lo.SomeBy(matchers, func(m Matcher) bool { return m.Match(internalMethod.FullName()) }) {
-				selectedFunctions = append(selectedFunctions, Function{name: internalMethod.FullName(), pkg: internalMethod.Package()})
-			}
-		}
-	}
-	return &FunctionSelection{&selection[Function]{arch: s.arch, objects: selectedFunctions}}
+	allMethods := lo.FlatMap(s.objects, func(typ Type, _ int) []Function {
+		return lo.Map(typ.internalType.Methods(), func(m internal.Function, _ int) Function {
+			return Function{name: m.FullName(), pkg: m.Package(), internalFunc: m}
+		})
+	})
+	matcher := toMatcher(matchers)
+	selectedFunctions := lo.Filter(allMethods, func(f Function, _ int) bool {
+		ok, _ := matcher.Match(f)
+		return ok
+	})
+	return &FunctionSelection{selection: selection[Function]{arch: s.arch, objects: selectedFunctions}}
 }
 
 type FunctionSelection struct {
-	*selection[Function]
+	selection[Function]
+}
+
+func (s FunctionSelection) Name() string {
+	return "Function Selection"
+}
+
+func (s FunctionSelection) exportable() {}
+
+func (s FunctionSelection) ShouldBeExported() Checker {
+	return s.apply(ShouldBeExported[Function]())
+}
+
+func (s FunctionSelection) ShouldNotBeExported() Checker {
+	return s.apply(ShouldNotBeExported[Function]())
+}
+
+func (s FunctionSelection) ShouldResideInPackages(packagePatterns ...string) Checker {
+	return s.apply(ShouldResideInPackages[Function](packagePatterns...))
+}
+
+func (s FunctionSelection) ShouldResideInLayers(layers ...*Layer) Checker {
+	return s.apply(ShouldResideInLayers[Function](layers...))
 }
 
 type VariableSelection struct {
-	*selection[Variable]
+	selection[Variable]
+}
+
+func (s VariableSelection) Name() string {
+	return "Variable Selection"
+}
+
+func (s VariableSelection) exportable() {}
+
+func (s VariableSelection) ShouldBeExported() Checker {
+	return s.apply(ShouldBeExported[Variable]())
+}
+
+func (s VariableSelection) ShouldNotBeExported() Checker {
+	return s.apply(ShouldNotBeExported[Variable]())
+}
+
+func (s VariableSelection) ShouldResideInPackages(packagePatterns ...string) Checker {
+	return s.apply(ShouldResideInPackages[Variable](packagePatterns...))
+}
+
+func (s VariableSelection) ShouldResideInLayers(layers ...*Layer) Checker {
+	return s.apply(ShouldResideInLayers[Variable](layers...))
 }
 
 // --- Top-level Selectors ---
 
-// Layers creates a selection of layers to which rules can be applied.
+// Layers creates a selection of layers to which apply can be applied.
 func Layers(names ...string) *LayerSelection {
-	lo.Assert(arch != nil, "archunit.Project() must be called before making any selections")
+	lo.Assert(_arch != nil, "archunit.ArchUnit() must be called before making any selections")
 	var selectedLayers []*Layer
 	var notFound []string
 	for _, name := range names {
-		if layer, ok := arch.layers[name]; ok {
+		if layer, ok := _arch.layers[name]; ok {
 			selectedLayers = append(selectedLayers, layer)
 		} else {
 			notFound = append(notFound, name)
 		}
 	}
 	lo.Assertf(len(notFound) == 0, fmt.Sprintf("layers not defined: %s", strings.Join(notFound, ", ")))
-	return &LayerSelection{&selection[*Layer]{arch: arch, objects: selectedLayers}}
+	valueLayers := lo.Map(selectedLayers, func(l *Layer, _ int) Layer {
+		return *l
+	})
+	return &LayerSelection{selection: selection[Layer]{arch: _arch, objects: valueLayers}}
 }
 
-func Packages(matchers ...Matcher) *PackageSelection {
-	if arch == nil {
-		panic("archunit.Project() must be called before making any selections")
+func Packages(matchers ...Matcher[Package]) *PackageSelection {
+	if _arch == nil {
+		panic("archunit.ArchUnit() must be called before making any selections")
 	}
 	// select app packages only
-	allPkgs := arch.artifact.Packages(true)
-	var selectedPkgs []*internal.Package
-	if len(matchers) > 0 {
-		selectedPkgs = lo.Filter(allPkgs, func(pkg *internal.Package, _ int) bool {
-			return lo.SomeBy(matchers, func(m Matcher) bool { return m.Match(pkg.ID()) })
-		})
-	} else {
-		selectedPkgs = allPkgs
-	}
-	publicPackages := lo.Map(selectedPkgs, func(p *internal.Package, _ int) Package {
+	allPkgs := lo.Map(_arch.artifact.Packages(true), func(p *internal.Package, _ int) Package {
 		return Package{name: p.ID()}
 	})
-	return &PackageSelection{&selection[Package]{arch: arch, objects: publicPackages}}
+
+	matcher := toMatcher(matchers)
+	selectedPkgs := lo.Filter(allPkgs, func(pkg Package, _ int) bool {
+		ok, _ := matcher.Match(pkg)
+		return ok
+	})
+	return &PackageSelection{selection: selection[Package]{arch: _arch, objects: selectedPkgs}}
 }
 
-func Types(matchers ...Matcher) *TypeSelection {
-	if arch == nil {
-		panic("archunit.Project() must be called before making any selections")
+func Types(matchers ...Matcher[Type]) *TypeSelection {
+	if _arch == nil {
+		panic("archunit.ArchUnit() must be called before making any selections")
 	}
-	allInternalTypes := arch.artifact.Types()
-	var selectedInternalTypes []internal.Type
-	if len(matchers) > 0 {
-		selectedInternalTypes = lo.Filter(allInternalTypes, func(t internal.Type, _ int) bool {
-			return lo.SomeBy(matchers, func(m Matcher) bool { return m.Match(t.Name()) })
-		})
-	} else {
-		selectedInternalTypes = allInternalTypes
-	}
-	publicTypes := lo.Map(selectedInternalTypes, func(t internal.Type, _ int) Type {
-		return Type{name: t.Name(), pkg: t.Package()}
+	allTypes := lo.Map(_arch.artifact.Types(), func(t internal.Type, _ int) Type {
+		return Type{name: t.Name(), pkg: t.Package(), internalType: t}
 	})
-	return &TypeSelection{&selection[Type]{arch: arch, objects: publicTypes}}
+
+	matcher := toMatcher(matchers)
+	selectedTypes := lo.Filter(allTypes, func(t Type, _ int) bool {
+		ok, _ := matcher.Match(t)
+		return ok
+	})
+	return &TypeSelection{selection: selection[Type]{arch: _arch, objects: selectedTypes}}
 }
 
 func TypesImplementing(interfaceName string) *TypeSelection {
-	if arch == nil {
-		panic("archunit.Project() must be called before making any selections")
+	if _arch == nil {
+		panic("archunit.ArchUnit() must be called before making any selections")
 	}
-	ifaceInternal, ok := arch.artifact.Type(interfaceName)
+	iface, ok := _arch.artifact.Type(interfaceName)
 	if !ok {
-		return &TypeSelection{&selection[Type]{err: fmt.Errorf("interface <%s> not found in project", interfaceName)}}
+		return &TypeSelection{selection: selection[Type]{err: fmt.Errorf("interface <%s> not found in project", interfaceName)}}
 	}
-	if !ifaceInternal.Interface() {
-		return &TypeSelection{&selection[Type]{err: fmt.Errorf("<%s> is not an interface", interfaceName)}}
+	if !iface.Interface() {
+		return &TypeSelection{selection: selection[Type]{err: fmt.Errorf("<%s> is not an interface", interfaceName)}}
 	}
-	targetInterface := ifaceInternal.Raw().Underlying().(*types.Interface)
+	targetInterface := iface.Raw().Underlying().(*types.Interface)
 
-	allInternalTypes := arch.artifact.Types()
-	var selectedInternalTypes []internal.Type
-	for _, t := range allInternalTypes {
+	selectedInternalTypes := lo.Filter(_arch.artifact.Types(), func(t internal.Type, _ int) bool {
 		// Use go/types.Implements for the check. It handles embedded types correctly.
 		// Also, make sure not to include the interface itself in the list of implementers.
-		if t.Name() != ifaceInternal.Name() && types.Implements(t.Raw(), targetInterface) {
-			selectedInternalTypes = append(selectedInternalTypes, t)
-		}
-	}
+		return t.Name() != iface.Name() && types.Implements(t.Raw(), targetInterface)
+	})
 	publicTypes := lo.Map(selectedInternalTypes, func(t internal.Type, _ int) Type {
-		return Type{name: t.Name(), pkg: t.Package()}
+		return Type{name: t.Name(), pkg: t.Package(), internalType: t}
 	})
-	return &TypeSelection{&selection[Type]{arch: arch, objects: publicTypes}}
+	return &TypeSelection{selection: selection[Type]{arch: _arch, objects: publicTypes}}
 }
 
-func Functions(matchers ...Matcher) *FunctionSelection {
-	if arch == nil {
-		panic("archunit.Project() must be called before making any selections")
+func Functions(matchers ...Matcher[Function]) *FunctionSelection {
+	if _arch == nil {
+		panic("archunit.ArchUnit() must be called before making any selections")
 	}
-	allInternalFunctions := arch.artifact.Functions()
-	var selectedInternalFunctions []internal.Function
-	if len(matchers) > 0 {
-		selectedInternalFunctions = lo.Filter(allInternalFunctions, func(f internal.Function, _ int) bool {
-			return lo.SomeBy(matchers, func(m Matcher) bool { return m.Match(f.FullName()) })
-		})
-	} else {
-		selectedInternalFunctions = allInternalFunctions
-	}
-	publicFunctions := lo.Map(selectedInternalFunctions, func(f internal.Function, _ int) Function {
-		return Function{name: f.FullName(), pkg: f.Package()}
+	allFuncs := lo.Map(_arch.artifact.Functions(), func(f internal.Function, _ int) Function {
+		return Function{name: f.FullName(), pkg: f.Package(), internalFunc: f}
 	})
-	return &FunctionSelection{&selection[Function]{arch: arch, objects: publicFunctions}}
 
+	matcher := toMatcher(matchers)
+	selectedFuncs := lo.Filter(allFuncs, func(f Function, _ int) bool {
+		ok, _ := matcher.Match(f)
+		return ok
+	})
+	return &FunctionSelection{selection: selection[Function]{arch: _arch, objects: selectedFuncs}}
 }
 
-func MethodsOf(typeMatcher Matcher) *FunctionSelection {
-	if arch == nil {
-		panic("archunit.Project() must be called before making any selections")
+func MethodsOf(typeMatcher Matcher[Type]) *FunctionSelection {
+	if _arch == nil {
+		panic("archunit.ArchUnit() must be called before making any selections")
 	}
 
-	allInternalTypes := arch.artifact.Types()
-
-	matchingTypes := lo.Filter(allInternalTypes, func(t internal.Type, _ int) bool {
-		return typeMatcher.Match(t.Name())
+	matchingTypes := lo.Filter(_arch.artifact.Types(), func(t internal.Type, _ int) bool {
+		ok, _ := typeMatcher.Match(Type{name: t.Name(), pkg: t.Package(), internalType: t})
+		return ok
 	})
-
 	selectedFunctions := lo.FlatMap(matchingTypes, func(t internal.Type, _ int) []Function {
 		return lo.Map(t.Methods(), func(m internal.Function, _ int) Function {
-			return Function{name: m.FullName(), pkg: m.Package()}
+			return Function{name: m.FullName(), pkg: m.Package(), internalFunc: m}
 		})
 	})
-	return &FunctionSelection{&selection[Function]{arch: arch, objects: selectedFunctions}}
+	return &FunctionSelection{selection: selection[Function]{arch: _arch, objects: selectedFunctions}}
 }
 
 func VariablesOfType(typeName string) *VariableSelection {
-	if arch == nil {
-		panic("archunit.Project() must be called before making any selections")
+	if _arch == nil {
+		panic("archunit.ArchUnit() must be called before making any selections")
 	}
 
-	allInternalVars := arch.artifact.Variables()
-
-	selectedInternalVars := lo.Filter(allInternalVars, func(v internal.Variable, _ int) bool {
+	selectedInternalVars := lo.Filter(_arch.artifact.Variables(), func(v internal.Variable, _ int) bool {
 		return v.Type().String() == typeName
 	})
-
 	publicVars := lo.Map(selectedInternalVars, func(v internal.Variable, _ int) Variable {
-		return Variable{name: v.FullName(), pkg: v.Package()}
+		return Variable{name: v.FullName(), pkg: v.Package(), internalVar: v}
 	})
 
-	return &VariableSelection{&selection[Variable]{arch: arch, objects: publicVars}}
+	return &VariableSelection{selection: selection[Variable]{arch: _arch, objects: publicVars}}
 }
 
 // Package represents a Go package.
@@ -465,31 +649,32 @@ func (p Package) referable() {}
 // Function represents a Go function or method.
 type Function struct {
 	// name is the fully qualified function name.
-	name string
-	pkg  string
+	name         string
+	pkg          string
+	internalFunc internal.Function
 }
 
 func (f Function) Name() string { return f.name }
 
 // Params returns the function's parameters.
 func (f Function) Params() []Param {
-	panic("")
+	return f.internalFunc.Params()
 }
 
 // Returns the function's return values.
 func (f Function) Returns() []Param {
-	panic("todo")
+	return f.internalFunc.Returns()
 }
 
 // Type returns the type of the function as a string (its signature).
 func (f Function) Type() string {
-	panic("todo")
+	panic("@todo : need to implement this in the internal first")
 }
 
 // Receiver returns the receiver of the function if it is a method.
 // It returns an empty string for regular functions.
 func (f Function) Receiver() string {
-	panic("todo")
+	panic("@todo : need to implement this in the internal first")
 }
 
 // PackagePath returns the package path where the function is defined.
@@ -503,15 +688,16 @@ func (f Function) exportable() {}
 // Type represents a Go type (struct, interface, etc.).
 type Type struct {
 	// name is the fully qualified type name.
-	name string
-	pkg  string
+	name         string
+	pkg          string
+	internalType internal.Type
 }
 
 func (t Type) Name() string { return t.name }
 
 // IsInterface returns true if the type is an interface.
 func (t Type) IsInterface() bool {
-	panic("todo")
+	panic("@todo need to implement this from internal first")
 }
 
 // PackagePath returns the package path where the type is defined.
@@ -528,8 +714,9 @@ func (t Type) referable() {}
 // Variable represents a package-level variable.
 type Variable struct {
 	// name is the fully qualified variable name.
-	name string
-	pkg  string
+	name        string
+	pkg         string
+	internalVar internal.Variable
 }
 
 func (v Variable) Name() string {
@@ -538,7 +725,7 @@ func (v Variable) Name() string {
 
 // Type returns the type of the variable as a string.
 func (v Variable) Type() string {
-	panic("todo")
+	return v.internalVar.Type().String()
 }
 
 // PackagePath returns the package path where the variable is defined.
@@ -548,3 +735,71 @@ func (v Variable) PackagePath() string {
 
 // exported implements the Exportable interface.
 func (v Variable) exportable() {}
+
+// File represents a Go source file.
+type File struct {
+	name string // Base name of the file (e.g., "my_file.go")
+	path string // Absolute path of the file
+}
+
+func (f File) Name() string { return filepath.Base(f.path) }
+
+// PackagePath returns the package path derived from the file's absolute path.
+func (f File) PackagePath() string {
+	// This needs to be relative to the module root and then converted to a package path.
+	// For now, a placeholder.
+	return filepath.Dir(f.path)
+}
+
+// SourceFiles creates a selection of all production Go files (excluding test files).
+func SourceFiles(matchers ...Matcher[File]) *FileSelection {
+	lo.Assert(_arch != nil, "archunit.ArchUnit() must be called before making any selections")
+
+	allFiles := lo.Filter(_arch.artifact.GoFiles(), func(filePath string, _ int) bool {
+		return !strings.HasSuffix(filePath, "_test.go")
+	})
+	sourceFiles := lo.Map(allFiles, func(filePath string, _ int) File {
+		return File{name: filepath.Base(filePath), path: filePath}
+	})
+	matcher := toMatcher(matchers)
+	sourceFiles = lo.Filter(sourceFiles, func(file File, _ int) bool {
+		ok, _ := matcher.Match(file)
+		return ok
+	})
+	return &FileSelection{selection: selection[File]{arch: _arch, objects: sourceFiles}}
+}
+
+// TestFiles creates a selection of all test Go files.
+func TestFiles(matchers ...Matcher[File]) *FileSelection {
+	lo.Assert(_arch != nil, "archunit.ArchUnit() must be called before making any selections")
+
+	allTestFiles := lo.Filter(_arch.artifact.GoFiles(), func(filePath string, _ int) bool {
+		return strings.HasSuffix(filePath, "_test.go")
+	})
+	testFiles := lo.Map(allTestFiles, func(filePath string, _ int) File {
+		return File{name: filepath.Base(filePath), path: filePath}
+	})
+	matcher := toMatcher(matchers)
+	testFiles = lo.Filter(testFiles, func(file File, _ int) bool {
+		ok, _ := matcher.Match(file)
+		return ok
+	})
+	return &FileSelection{selection: selection[File]{arch: _arch, objects: testFiles}}
+}
+
+func toMatcher[T ArchObject](matchers []Matcher[T]) Matcher[T] {
+	if len(matchers) == 0 {
+		return MatcherFunc[T](func(item T) (bool, string) {
+			return true, "any"
+		})
+	}
+	return allOf(matchers...)
+}
+
+type FileSelection struct {
+	selection[File]
+}
+
+func (s PackageSelection) ShouldNotExceedDepth(max int) Checker {
+	return s.apply(ShouldNotExceedDepth(max))
+}
