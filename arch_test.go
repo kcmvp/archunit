@@ -18,14 +18,14 @@ func TestArchUnit(t *testing.T) {
 	productionPackages := Packages(Not(HaveNamePrefix[Package]("github.com/kcmvp/archunit/internal/sample")))
 
 	// Execute the architectural validation
-	err := ArchUnit(internalLayer, appLayer).Rules(
+	err := ArchUnit(internalLayer, appLayer).Validate(
 
 		// --- General Coding Conventions ---
 		SourceFiles().NameShould(BeSnakeCase),
-		productionPackages.NameShould(MatchFolder),
+		productionPackages.ShouldBeNamedAsFolderName(),
 		productionPackages.ShouldNotExceedDepth(3), // Set a reasonable max depth
 
-		// --- Dependency Rules ---
+		// --- Dependency check ---
 
 		// 1. Classic Layering: The App layer should not be depended on by the Internal layer.
 		Layers("App").ShouldNotBeReferredBy(Layers("Internal")),

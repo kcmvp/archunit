@@ -2,6 +2,7 @@ package internal
 
 import (
 	"fmt"
+	"go/ast"
 	"go/types"
 	"strings"
 	"sync"
@@ -44,6 +45,10 @@ func (f Function) Raw() *types.Func {
 	return f.raw
 }
 
+func (f Function) Exported() bool {
+	return f.raw.Exported()
+}
+
 type Type struct {
 	raw *types.TypeName
 }
@@ -51,6 +56,15 @@ type Type struct {
 type Variable struct {
 	raw *types.Var
 }
+
+func (v Variable) Raw() *types.Var {
+	return v.raw
+}
+
+func (v Variable) Exported() bool {
+	return v.raw.Exported()
+}
+
 type Artifact struct {
 	rootDir string
 	module  string
@@ -243,6 +257,64 @@ func (artifact *Artifact) Type(typName string) (Type, bool) {
 	return Type{}, false
 }
 
+func (artifact *Artifact) UnusedPublicDeclarations() []string {
+	// 1. Collect all exported objects from application packages.
+	exportedObjects := map[types.Object]string{}
+	for _, pkg := range artifact.Packages(true) {
+		// Exported types
+		for _, t := range pkg.Types() {
+			if t.Exported() {
+				exportedObjects[t.Raw().Obj()] = pkg.ID()
+				// Exported methods of the type
+				for _, m := range t.Methods() {
+					if m.Exported() {
+						exportedObjects[m.Raw()] = pkg.ID()
+					}
+				}
+			}
+		}
+		// Exported package-level functions
+		for _, f := range pkg.Functions() {
+			if f.Exported() {
+				exportedObjects[f.Raw()] = pkg.ID()
+			}
+		}
+	}
+
+	// 2. Mark all exported objects that are used by other packages.
+	usedExports := map[types.Object]struct{}{}
+	for _, pkg := range artifact.Packages(false) { // Check all packages for usage
+		if pkg.Raw().TypesInfo == nil {
+			continue
+		}
+		for _, usedObj := range pkg.Raw().TypesInfo.Uses {
+			if definingPkg, ok := exportedObjects[usedObj]; ok {
+				if definingPkg != pkg.ID() {
+					usedExports[usedObj] = struct{}{}
+				}
+			}
+		}
+	}
+
+	// 3. Find unused exports and report them.
+	var unused []string
+	for obj := range exportedObjects {
+		if _, isUsed := usedExports[obj]; !isUsed {
+			// Filter out common false positives
+			if fn, ok := obj.(*types.Func); ok {
+				if fn.Name() == "main" && fn.Pkg().Name() == "main" {
+					continue
+				}
+				if strings.HasPrefix(fn.Name(), "Test") || strings.HasPrefix(fn.Name(), "Benchmark") || strings.HasPrefix(fn.Name(), "Example") {
+					continue
+				}
+			}
+			unused = append(unused, obj.Pkg().Path()+"."+obj.Name())
+		}
+	}
+	return unused
+}
+
 func (pkg *Package) Raw() *packages.Package {
 	return pkg.raw
 }
@@ -277,6 +349,56 @@ func (pkg *Package) Imports() []string {
 
 func (pkg *Package) Name() string {
 	return pkg.raw.Name
+}
+
+func (pkg *Package) InitFunctionFiles() []string {
+	var initFiles []string
+	for i, file := range pkg.raw.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "init" && fn.Recv == nil {
+				initFiles = append(initFiles, pkg.raw.GoFiles[i])
+			}
+			return true
+		})
+	}
+	return lo.Uniq(initFiles)
+}
+
+func (pkg *Package) VariablesNotUsedInDefiningFile() []Variable {
+	var unusedVars []Variable
+	scope := pkg.raw.Types.Scope()
+	for _, v := range pkg.variables {
+		varName := strings.TrimPrefix(v.FullName(), pkg.ID()+".")
+		obj := scope.Lookup(varName)
+		rawVar, ok := obj.(*types.Var)
+		if !ok || rawVar == nil {
+			continue
+		}
+		defPos := rawVar.Pos()
+		if !defPos.IsValid() {
+			continue
+		}
+		defFile := pkg.raw.Fset.File(defPos).Name()
+
+		usedInDefiningFile := false
+		for ident, usedObj := range pkg.raw.TypesInfo.Uses {
+			if usedObj == rawVar {
+				usePos := ident.Pos()
+				if !usePos.IsValid() {
+					continue
+				}
+				useFile := pkg.raw.Fset.File(usePos).Name()
+				if useFile == defFile {
+					usedInDefiningFile = true
+					break
+				}
+			}
+		}
+		if !usedInDefiningFile {
+			unusedVars = append(unusedVars, v)
+		}
+	}
+	return unusedVars
 }
 
 func (typ Type) Interface() bool {
@@ -396,4 +518,8 @@ func (v Variable) FullName() string {
 
 func (v Variable) Package() string {
 	return v.raw.Pkg().Path()
+}
+
+func (v Variable) GoFile() string {
+	return Arch().Package(v.Package()).raw.Fset.Position(v.raw.Pos()).Filename
 }

@@ -2,8 +2,6 @@ package archunit
 
 import (
 	"fmt"
-	"go/ast"
-	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -15,13 +13,14 @@ import (
 type ViolationCategory string
 
 const (
-	CategoryLayer    ViolationCategory = "Layer"
-	CategoryPackage  ViolationCategory = "Package"
-	CategoryType     ViolationCategory = "Type"
-	CategoryFunction ViolationCategory = "Function"
-	CategoryVariable ViolationCategory = "Variable"
-	CategoryFile     ViolationCategory = "File"
-	CategoryFolder   ViolationCategory = "Folder"
+	CategoryLayer        ViolationCategory = "Layer"
+	CategoryPackage      ViolationCategory = "Package"
+	CategoryType         ViolationCategory = "Type"
+	CategoryFunction     ViolationCategory = "Function"
+	CategoryVariable     ViolationCategory = "Variable"
+	CategoryFile         ViolationCategory = "File"
+	CategoryFolder       ViolationCategory = "Folder"
+	CategoryUnusedPublic ViolationCategory = "UnusedPublic"
 )
 
 // ViolationError is a structured error type that categorizes validation failures.
@@ -42,65 +41,62 @@ func (e *ViolationError) Error() string {
 }
 
 // Rule defines a generic assertion that can be applied to a selection of architectural objects.
-type Rule[T ArchObject] interface {
-	// Validate checks the given architectural objects against the rule's logic.
-	Validate(arch Architecture, objects ...T) error
+type Rule interface {
+	// Check checks the given architectural objects against the rule's logic.
+	check(arch Architecture, objects ...ArchObject) error
 }
 
-// RuleFunc is an adapter to allow ordinary functions to be used as Rules.
-type RuleFunc[T ArchObject] func(arch Architecture, items []T) error
+// ruleFunc is an adapter to allow ordinary functions to be used as Rules.
+type ruleFunc func(arch Architecture, objects ...ArchObject) error
 
-func (f RuleFunc[T]) Validate(arch Architecture, objects ...T) error {
-	return f(arch, objects)
+func (f ruleFunc) check(arch Architecture, objects ...ArchObject) error {
+	return f(arch, objects...)
 }
 
-// Checker is an interface that wraps the check method.
-// it's a wrapper of Rule[T ArchObject]
-type Checker interface {
-	check(arch Architecture) error
-}
+// packageNamedAsFolder checks if a Package's name matches its folder's name.
+func packageNamedAsFolder[T ArchObject]() Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		var violations []string
+		a := arch.(*architecture)
 
-// CheckerFunc is an adapter to allow ordinary functions to be used as Checkers.
-type CheckerFunc func(arch Architecture) error
+		for _, object := range objects {
+			pkg, ok := object.(Package)
+			if !ok {
+				// This should not happen if the rule is applied to a PackageSelection.
+				continue
+			}
 
-func (f CheckerFunc) check(arch Architecture) error {
-	return f(arch)
-}
+			internalPkg := a.artifact.Package(pkg.Name())
+			if internalPkg == nil {
+				continue
+			}
 
-// BeSnakeCase checks if a File's name is in snake_case.
-func BeSnakeCase(file File) (bool, string) {
-	description := "be in snake_case"
-	stem := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name()))
-	if stem == "" {
-		return true, description
-	}
-	for _, r := range stem {
-		if !(('a' <= r && r <= 'z') || ('0' <= r && r <= '9') || r == '_') {
-			return false, description
+			// Assumption: internal.Package has a Name() method returning the declared package name.
+			declaredName := internalPkg.Name()
+			folderName := filepath.Base(pkg.Name())
+
+			if declaredName != folderName {
+				violation := fmt.Sprintf("package <%s>'s name should be <%s> (the folder name), but is <%s>", pkg.Name(), folderName, declaredName)
+				violations = append(violations, violation)
+			}
 		}
-	}
-	if strings.HasPrefix(stem, "_") || strings.HasSuffix(stem, "_") || strings.Contains(stem, "__") {
-		return false, description
-	}
-	return true, description
-}
 
-// MatchFolder checks if a Package's name matches its folder's name.
-func MatchFolder(pkg Package) (bool, string) {
-	description := "have name matching its folder"
-	internalPkg := _arch.artifact.Package(pkg.Name())
-	if internalPkg == nil || len(internalPkg.GoFiles()) == 0 || internalPkg.Name() == "main" {
-		return true, description // Ignore main packages or packages with no Go files
-	}
-	folderName := filepath.Base(filepath.Dir(internalPkg.GoFiles()[0]))
-	return internalPkg.Name() == folderName, description
+		if len(violations) > 0 {
+			return &ViolationError{
+				category:   CategoryPackage,
+				Violations: violations,
+			}
+		}
+
+		return nil
+	})
 }
 
 // --- Generic Rule Constructors ---
 
-// ShouldNotRefer creates a rule that asserts selected architectural objects do not refer to any of the forbidden referents.
-func ShouldNotRefer[T Referable](forbidden ...Referable) Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
+// shouldNotRefer creates a rule that asserts selected architectural objects do not refer to any of the forbidden referents.
+func shouldNotRefer[T Referable](forbidden ...Referable) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		// 1. Build a set of all forbidden package IDs from the 'forbidden' Referents.
 		forbiddenIDs := map[string]struct{}{}
 		for _, f := range forbidden {
@@ -118,13 +114,17 @@ func ShouldNotRefer[T Referable](forbidden ...Referable) Rule[T] {
 		}
 
 		// 2. For each selected item, check its dependencies against the forbidden set.
-		for _, item := range items {
+		for _, object := range objects {
+			item, ok := object.(T)
+			if !ok {
+				return fmt.Errorf("internal error: shouldNotRefer expected type %T but got %T", *new(T), object)
+			}
 			dependencies, err := itemDependencies(arch, item)
 			if err != nil {
 				return err
 			}
 
-			// 3. Check for violations, ignoring self-references.
+			// 3. check for violations, ignoring self-references.
 			itemPackageIDs, err := resolveReferableToPackageIDs(arch, item)
 			if err != nil {
 				return fmt.Errorf("failed to resolve item <%s>: %w", item.Name(), err)
@@ -147,11 +147,11 @@ func ShouldNotRefer[T Referable](forbidden ...Referable) Rule[T] {
 	})
 }
 
-// ShouldOnlyRefer creates a rule that asserts selected architectural objects only refer to allowed referents.
+// shouldOnlyRefer creates a rule that asserts selected architectural objects only refer to allowed referents.
 // This rule is useful for enforcing strict layering or dependency inversion principles, ensuring that
 // a component only depends on explicitly permitted components.
-func ShouldOnlyRefer[T Referable](allowed ...Referable) Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
+func shouldOnlyRefer[T Referable](allowed ...Referable) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		// 1. Build a set of all allowed package IDs from the 'allowed' Referents.
 		allowedIDs := map[string]struct{}{}
 		for _, a := range allowed {
@@ -165,7 +165,11 @@ func ShouldOnlyRefer[T Referable](allowed ...Referable) Rule[T] {
 		}
 
 		// 2. For each selected item, check its dependencies against the allowed set.
-		for _, item := range items {
+		for _, object := range objects {
+			item, ok := object.(T)
+			if !ok {
+				return fmt.Errorf("internal error: shouldOnlyRefer expected type %T but got %T", *new(T), object)
+			}
 			dependencies, err := itemDependencies(arch, item)
 			if err != nil {
 				return err
@@ -180,7 +184,7 @@ func ShouldOnlyRefer[T Referable](allowed ...Referable) Rule[T] {
 				return id, struct{}{}
 			})
 
-			// 4. Check for violations.
+			// 4. check for violations.
 			for _, dep := range dependencies {
 				_, isAllowed := allowedIDs[dep]
 				_, isSelf := itemPackagesSet[dep]
@@ -195,15 +199,19 @@ func ShouldOnlyRefer[T Referable](allowed ...Referable) Rule[T] {
 	})
 }
 
-// ShouldNotBeReferredBy creates a rule that asserts selected architectural objects are not referred to by
+// shouldNotBeReferredBy creates a rule that asserts selected architectural objects are not referred to by
 // any of the forbidden referrers. This is useful for enforcing layering, where higher layers should not
 // depend on lower layers, or for preventing certain modules from depending on sensitive components.
 // The rule checks all packages in the project to find illegal references.
-func ShouldNotBeReferredBy[T Referable](forbidden ...Referable) Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
+func shouldNotBeReferredBy[T Referable](forbidden ...Referable) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		// 1. Get all package IDs of the items that should not be referred to.
 		targetIDs := map[string]struct{}{}
-		for _, item := range items {
+		for _, object := range objects {
+			item, ok := object.(T)
+			if !ok {
+				return fmt.Errorf("internal error: shouldNotBeReferredBy expected type %T but got %T", *new(T), object)
+			}
 			ids, err := resolveReferableToPackageIDs(arch, item)
 			if err != nil {
 				return fmt.Errorf("failed to resolve target referent <%s>: %w", item.Name(), err)
@@ -227,7 +235,7 @@ func ShouldNotBeReferredBy[T Referable](forbidden ...Referable) Rule[T] {
 				return err
 			}
 
-			// 3. Check if any dependency is a target.
+			// 3. check if any dependency is a target.
 			for _, dep := range dependencies {
 				if _, ok := targetIDs[dep]; ok {
 					return fmt.Errorf("arch violation: a selected item is referred by forbidden referrer <%s> via package <%s>", forbiddenReferrer.Name(), dep)
@@ -239,15 +247,19 @@ func ShouldNotBeReferredBy[T Referable](forbidden ...Referable) Rule[T] {
 	})
 }
 
-// ShouldOnlyBeReferredBy creates a rule that asserts selected architectural objects are only referred to by
+// shouldOnlyBeReferredBy creates a rule that asserts selected architectural objects are only referred to by
 // the specified allowed referrers. This is useful for enforcing strict layering or dependency inversion,
 // ensuring that a component is only depended upon by explicitly permitted components.
 // The rule iterates through all packages in the project to find any illegal references to the selected items.
-func ShouldOnlyBeReferredBy[T Referable](allowed ...Referable) Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
+func shouldOnlyBeReferredBy[T Referable](allowed ...Referable) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		// 1. Get all package IDs of the items that should only be referred by the allowed set.
 		targetIDs := map[string]struct{}{}
-		for _, item := range items {
+		for _, object := range objects {
+			item, ok := object.(T)
+			if !ok {
+				return fmt.Errorf("internal error: shouldOnlyBeReferredBy expected type %T but got %T", *new(T), object)
+			}
 			ids, err := resolveReferableToPackageIDs(arch, item)
 			if err != nil {
 				return fmt.Errorf("failed to resolve target referent <%s>: %w", item.Name(), err)
@@ -274,10 +286,10 @@ func ShouldOnlyBeReferredBy[T Referable](allowed ...Referable) Rule[T] {
 
 		// 3. Iterate through all packages in the project to find illegal references.
 		for _, projectPkg := range arch.(*architecture).artifact.Packages() {
-			// 4. Check if this package refers to any of the targets.
+			// 4. check if this package refers to any of the targets.
 			for _, dep := range projectPkg.Imports() {
 				if _, isTarget := targetIDs[dep]; isTarget {
-					// This package refers to a target. Check if it's allowed.
+					// This package refers to a target. check if it's allowed.
 					_, isAllowed := allowedReferrerIDs[projectPkg.ID()]
 					_, isSelf := targetIDs[projectPkg.ID()] // Is the referrer one of the targets?
 					if !isAllowed && !isSelf {
@@ -290,15 +302,19 @@ func ShouldOnlyBeReferredBy[T Referable](allowed ...Referable) Rule[T] {
 	})
 }
 
-// NameShould creates a rule that asserts the name of selected architectural objects matches the given Matcher.
-func NameShould[T ArchObject](matcher Matcher[T]) Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
-		if len(items) == 0 {
+// nameShould creates a rule that asserts the name of selected architectural objects matches the given Matcher.
+func nameShould[T ArchObject](matcher Matcher[T]) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		if len(objects) == 0 {
 			return nil
 		}
 
 		var violations []string
-		for _, item := range items {
+		for _, object := range objects {
+			item, ok := object.(T)
+			if !ok {
+				return fmt.Errorf("internal error: nameShould expected type %T but got %T", *new(T), object)
+			}
 			ok, description := matcher.Match(item)
 			if !ok {
 				violation := fmt.Sprintf("name <%s> should %s", item.Name(), description)
@@ -311,7 +327,7 @@ func NameShould[T ArchObject](matcher Matcher[T]) Rule[T] {
 		}
 
 		var category ViolationCategory
-		switch any(items[0]).(type) {
+		switch any(objects[0]).(type) {
 		case Package:
 			category = CategoryPackage
 		case Type:
@@ -336,15 +352,19 @@ func NameShould[T ArchObject](matcher Matcher[T]) Rule[T] {
 	})
 }
 
-// NameShouldNot creates a rule that asserts the name of selected architectural objects does not match the given Matcher.
-func NameShouldNot[T ArchObject](matcher Matcher[T]) Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
-		if len(items) == 0 {
+// nameShouldNot creates a rule that asserts the name of selected architectural objects does not match the given Matcher.
+func nameShouldNot[T ArchObject](matcher Matcher[T]) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		if len(objects) == 0 {
 			return nil
 		}
 
 		var violations []string
-		for _, item := range items {
+		for _, object := range objects {
+			item, ok := object.(T)
+			if !ok {
+				return fmt.Errorf("internal error: nameShouldNot expected type %T but got %T", *new(T), object)
+			}
 			ok, description := matcher.Match(item)
 			if ok {
 				violation := fmt.Sprintf("name <%s> should not %s", item.Name(), description)
@@ -357,7 +377,7 @@ func NameShouldNot[T ArchObject](matcher Matcher[T]) Rule[T] {
 		}
 
 		var category ViolationCategory
-		switch any(items[0]).(type) {
+		switch any(objects[0]).(type) {
 		case Package:
 			category = CategoryPackage
 		case Type:
@@ -381,15 +401,19 @@ func NameShouldNot[T ArchObject](matcher Matcher[T]) Rule[T] {
 	})
 }
 
-// ShouldBeExported creates a rule that asserts the selected architectural objects are exported.
-func ShouldBeExported[T Exportable]() Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
-		if len(items) == 0 {
+// shouldBeExported creates a rule that asserts the selected architectural objects are exported.
+func shouldBeExported[T Exportable]() Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		if len(objects) == 0 {
 			return nil
 		}
 		var violations []string
-		for _, item := range items {
-			if !ast.IsExported(item.Name()) {
+		for _, object := range objects {
+			item, ok := object.(T)
+			if !ok {
+				return fmt.Errorf("internal error: shouldBeExported expected type %T but got %T", *new(T), object)
+			}
+			if !item.Exported() {
 				violation := fmt.Sprintf("object <%s> should be exported", item.Name())
 				violations = append(violations, violation)
 			}
@@ -405,16 +429,20 @@ func ShouldBeExported[T Exportable]() Rule[T] {
 	})
 }
 
-// ShouldNotBeExported creates a rule that asserts the selected architectural objects (like Function, Type, or Variable) are not exported.
+// shouldNotBeExported creates a rule that asserts the selected architectural objects (like Function, Type, or Variable) are not exported.
 // This is a valuable rule for enforcing encapsulation and preventing global mutable state.
-func ShouldNotBeExported[T Exportable]() Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
-		if len(items) == 0 {
+func shouldNotBeExported[T Exportable]() Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		if len(objects) == 0 {
 			return nil
 		}
 		var violations []string
-		for _, item := range items {
-			if ast.IsExported(item.Name()) {
+		for _, object := range objects {
+			item, ok := object.(T)
+			if !ok {
+				return fmt.Errorf("internal error: shouldNotBeExported expected type %T but got %T", *new(T), object)
+			}
+			if item.Exported() {
 				violation := fmt.Sprintf("object <%s> should not be exported", item.Name())
 				violations = append(violations, violation)
 			}
@@ -430,18 +458,19 @@ func ShouldNotBeExported[T Exportable]() Rule[T] {
 	})
 }
 
-// ShouldResideInPackages creates a rule that asserts the selected architectural objects reside in a package matching one of the given patterns.
+// shouldResideInPackages creates a rule that asserts the selected architectural objects reside in a package matching one of the given patterns.
 // For example, ensuring all types ending in 'DTO' are in a '.../dto/...' package.
-func ShouldResideInPackages[T interface {
-	Exportable
-	PackagePath() string
-}](packagePatterns ...string) Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
-		if len(items) == 0 {
+func shouldResideInPackages[T Exportable](packagePatterns ...string) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		if len(objects) == 0 {
 			return nil
 		}
 		var violations []string
-		for _, item := range items {
+		for _, object := range objects {
+			item, ok := object.(Variable)
+			if !ok {
+				return fmt.Errorf("internal error: shouldResideInPackages expected type %T but got %T", *new(T), object)
+			}
 			match := lo.SomeBy(packagePatterns, func(pattern string) bool {
 				match, _ := filepath.Match(pattern, item.PackagePath())
 				return match
@@ -462,17 +491,18 @@ func ShouldResideInPackages[T interface {
 	})
 }
 
-// ShouldResideInLayers creates a rule that asserts the selected architectural objects reside in one of the given layers.
-func ShouldResideInLayers[T interface {
-	Exportable
-	PackagePath() string
-}](layers ...*Layer) Rule[T] {
-	return RuleFunc[T](func(arch Architecture, items []T) error {
-		if len(items) == 0 {
+// shouldResideInLayers creates a rule that asserts the selected architectural objects reside in one of the given layers.
+func shouldResideInLayers[T Exportable](layers ...*Layer) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		if len(objects) == 0 {
 			return nil
 		}
 		var violations []string
-		for _, item := range items {
+		for _, object := range objects {
+			item, ok := object.(Type)
+			if !ok {
+				return fmt.Errorf("internal error: shouldResideInLayers expected type %T but got %T", *new(T), object)
+			}
 			found := false
 			for _, layer := range layers {
 				layerPkgs, err := selectPackagesByPattern(arch, layer.rootFolder)
@@ -509,14 +539,18 @@ func ShouldResideInLayers[T interface {
 
 // --- Specific Rule Constructors ---
 
-// ShouldNotExceedDepth creates a rule that asserts a package's depth does not exceed a max value.
-func ShouldNotExceedDepth(max int) Rule[Package] {
-	return RuleFunc[Package](func(arch Architecture, pkgs []Package) error {
+// shouldNotExceedDepth creates a rule that asserts a package's depth does not exceed a max value.
+func shouldNotExceedDepth(max int) Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		a := arch.(*architecture)
 		rootDir := a.artifact.RootDir()
 		var violations []string
 
-		for _, pkg := range pkgs {
+		for _, object := range objects {
+			pkg, ok := object.(Package)
+			if !ok {
+				return fmt.Errorf("internal error: shouldNotExceedDepth expected type Package but got %T", object)
+			}
 			internalPkg := a.artifact.Package(pkg.Name())
 			if internalPkg == nil || len(internalPkg.GoFiles()) == 0 {
 				continue
@@ -554,105 +588,5 @@ func ShouldNotExceedDepth(max int) Rule[Package] {
 		}
 
 		return nil
-	})
-}
-
-// --- Global Checkers ---
-
-// ConstantsShouldBeConsolidated creates a check that all constants within any given package are defined in a single file.
-// This is a project-wide, global rule.
-func ConstantsShouldBeConsolidated() Checker {
-	return CheckerFunc(func(arch Architecture) error {
-		panic("todo")
-	})
-}
-
-// VariablesShouldBeReferencedInDefiningFile creates a check that package-level variables are referenced at least once
-// within the same file where they are defined. This is a project-wide, global rule that promotes
-// locality of reference and prevents "unanchored" global state within a package.
-func VariablesShouldBeReferencedInDefiningFile() Checker {
-	return CheckerFunc(func(arch Architecture) error {
-		panic("todo")
-	})
-}
-
-// FolderShouldContainConfigurationFiles creates a check that all configuration files (e.g., .yml, .json, .toml)
-// are located within a dedicated directory at the project root.
-// This is a project-wide, global rule that promotes a clean project structure.
-func FolderShouldContainConfigurationFiles(folderName string) Checker {
-	return CheckerFunc(func(arch Architecture) error {
-		a := arch.(*architecture)
-		rootDir := a.artifact.RootDir()
-		allowedDir := filepath.Join(rootDir, folderName)
-		var violations []string
-
-		configExtensions := map[string]struct{}{
-			".yml":  {},
-			".yaml": {},
-			".json": {},
-			".toml": {},
-		}
-
-		err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err // Stop walking on error or if it's a directory we don't need to check.
-			}
-			ext := filepath.Ext(path)
-			if _, isConfig := configExtensions[ext]; isConfig {
-				dir := filepath.Dir(path)
-				if dir != allowedDir {
-					violation := fmt.Sprintf("configuration file <%s> is not in the allowed folder '%s'", path, folderName)
-					violations = append(violations, violation)
-				}
-			}
-			return nil
-		})
-
-		if err != nil {
-			// This error is from WalkDir itself, not a validation failure.
-			return err
-		}
-
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryFolder,
-				Violations: violations,
-			}
-		}
-
-		return nil
-	})
-}
-
-// NoPublicVariables creates a check that there are no exported package-level variables in the entire project.
-// This is a valuable global rule for preventing global mutable state.
-func NoPublicVariables() Checker {
-	return CheckerFunc(func(arch Architecture) error {
-		panic("todo")
-	})
-}
-
-// NoUnusedExports creates a check that for exported types and functions that are not used by any other package in the project.
-// This is a valuable global rule for maintaining a minimal and clean public API surface and identifying dead code.
-func NoUnusedExports() Checker {
-	return CheckerFunc(func(arch Architecture) error {
-		panic("todo")
-	})
-}
-
-// AtMostOneInitFuncPerPackage creates a check that each package in the project contains at most one init() function.
-// Having multiple init() functions in a single package can make initialization order non-deterministic and hard to reason about.
-// This is a project-wide, global rule.
-func AtMostOneInitFuncPerPackage() Checker {
-	return CheckerFunc(func(arch Architecture) error {
-		panic("todo")
-	})
-}
-
-// FunctionsShouldReturnErrorAsLast creates a check that all functions in the project that return a value
-// return an 'error' as their last return parameter. This is a project-wide, global rule.
-func FunctionsShouldReturnErrorAsLast() Checker {
-	return CheckerFunc(func(arch Architecture) error {
-		panic("todo")
 	})
 }

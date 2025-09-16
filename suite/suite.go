@@ -173,7 +173,7 @@ func (suite *ArchSuite) SetT(t *testing.T) {
 			// If it failed, write the buffered logs to a file.
 			prefix := suite.logPrefix()
 			if prefix == "" {
-				// Rules not happen in a normal test method run, but as a safeguard.
+				// check not happen in a normal test method run, but as a safeguard.
 				t.Errorf("promote: could not determine log prefix")
 				return
 			}
@@ -303,7 +303,7 @@ func cleanTestLog(as suite.TestingSuite) {
 		return
 	}
 
-	// Check if this suite embeds an ArchSuite. If not, there's nothing to clean.
+	// check if this suite embeds an ArchSuite. If not, there's nothing to clean.
 	if _, ok := suiteType.FieldByName("ArchSuite"); !ok {
 		return
 	}

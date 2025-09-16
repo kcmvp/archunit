@@ -62,8 +62,8 @@ type ArchObject interface {
 // Architecture provides access to the parsed architectural information of the project.
 type Architecture interface {
 	// seal is a private method to prevent external implementations.
-	architecture()
-	Rules(checks ...Checker) error
+	architecture() *internal.Artifact
+	Validate(rules ...Rule) error
 }
 
 // architecture is the concrete implementation of the Architecture interface.
@@ -72,14 +72,16 @@ type architecture struct {
 	layers   map[string]*Layer
 }
 
-func (arch *architecture) architecture() {}
+func (arch *architecture) architecture() *internal.Artifact {
+	return arch.artifact
+}
 
-func (arch *architecture) Rules(checks ...Checker) error {
+func (arch *architecture) Validate(rules ...Rule) error {
 	violationsByCategory := map[ViolationCategory][]string{}
 	var otherErrors []string
 
-	for _, c := range checks {
-		if err := c.check(arch); err != nil {
+	for _, rule := range rules {
+		if err := rule.check(arch); err != nil {
 			var v *ViolationError
 			if errors.As(err, &v) {
 				violationsByCategory[v.Category()] = append(violationsByCategory[v.Category()], v.Violations...)
@@ -131,6 +133,7 @@ type Referable interface {
 // Exportable is a marker interface for architectural objects that can be exported.
 type Exportable interface {
 	ArchObject
+	Exported() bool
 	// exportable is a private marker method to prevent unintended implementations.
 	exportable()
 }
@@ -141,7 +144,7 @@ type Exportable interface {
 // The returned function then accepts a slice of `Checker`s to execute, collecting all violations.
 // If all checks pass, it returns the parsed Architecture for further use.
 func ArchUnit(layers ...*Layer) Architecture {
-	// Validate layers for uniqueness before initializing the project.
+	// check layers for uniqueness before initializing the project.
 	// This is the correct place for configuration validation.
 	names := map[string]bool{}
 	folders := map[string]bool{}
@@ -183,28 +186,28 @@ func (l Layer) referable() {}
 
 type Selection[T ArchObject] interface {
 	Objects() []T
-	NameShould(func(T) (bool, string)) Checker
-	NameShouldNot(func(T) (bool, string)) Checker
+	NameShould(func(T) (bool, string)) Rule
+	NameShouldNot(func(T) (bool, string)) Rule
 	Error() error
-	apply(rules ...Rule[T]) Checker
+	apply(rule Rule) Rule
 }
 
 // ReferableSelection represents a selection of objects that can have dependency apply applied.
 type ReferableSelection[T Referable] interface {
 	Selection[T]
-	ShouldNotRefer(forbidden ...Referable) Checker
-	ShouldOnlyRefer(allowed ...Referable) Checker
-	ShouldNotBeReferredBy(forbidden ...Referable) Checker
-	ShouldOnlyBeReferredBy(allowed ...Referable) Checker
+	ShouldNotRefer(forbidden ...Referable) Rule
+	ShouldOnlyRefer(allowed ...Referable) Rule
+	ShouldNotBeReferredBy(forbidden ...Referable) Rule
+	ShouldOnlyBeReferredBy(allowed ...Referable) Rule
 }
 
 // ExportableSelection represents a selection of objects that can have visibility apply applied.
 type ExportableSelection[T Exportable] interface {
 	Selection[T]
-	ShouldBeExported() Checker
-	ShouldNotBeExported() Checker
-	ShouldResideInPackages(packagePatterns ...string) Checker
-	ShouldResideInLayers(layers ...*Layer) Checker
+	ShouldBeExported() Rule
+	ShouldNotBeExported() Rule
+	ShouldResideInPackages(packagePatterns ...string) Rule
+	ShouldResideInLayers(layers ...*Layer) Rule
 }
 
 // selection is the private, concrete implementation of the generic Selection interface.
@@ -221,26 +224,27 @@ func (s selection[T]) Objects() []T {
 	return s.objects
 }
 
-func (s selection[T]) apply(rules ...Rule[T]) Checker {
-	return CheckerFunc(func(arch Architecture) error {
+func (s selection[T]) apply(rule Rule) Rule {
+	return ruleFunc(func(arch Architecture, _ ...ArchObject) error { // Renamed to 'ignored' to clarify intent
 		if s.err != nil {
 			return s.err
 		}
-		for _, rule := range rules {
-			if err := rule.Validate(arch, s.objects...); err != nil {
-				return err
-			}
+		// Convert the selection's objects from []T to []ArchObject
+		archObjects := make([]ArchObject, len(s.objects))
+		for i, obj := range s.objects {
+			archObjects[i] = obj
 		}
-		return nil
+		// check each rule against the selection's objects
+		return rule.check(arch, archObjects...)
 	})
 }
 
-func (s selection[T]) NameShould(assertion func(T) (bool, string)) Checker {
-	return s.apply(NameShould(MatcherFunc[T](assertion)))
+func (s selection[T]) NameShould(assertion func(T) (bool, string)) Rule {
+	return s.apply(nameShould(MatcherFunc[T](assertion)))
 }
 
-func (s selection[T]) NameShouldNot(assertion func(T) (bool, string)) Checker {
-	return s.apply(NameShouldNot(MatcherFunc[T](assertion)))
+func (s selection[T]) NameShouldNot(assertion func(T) (bool, string)) Rule {
+	return s.apply(nameShouldNot(MatcherFunc[T](assertion)))
 }
 
 func (s selection[T]) Error() error {
@@ -257,20 +261,20 @@ func (s LayerSelection) Name() string {
 
 func (s LayerSelection) referable() {}
 
-func (s LayerSelection) ShouldNotRefer(forbidden ...Referable) Checker {
-	return s.apply(ShouldNotRefer[Layer](forbidden...))
+func (s LayerSelection) ShouldNotRefer(forbidden ...Referable) Rule {
+	return s.apply(shouldNotRefer[Layer](forbidden...))
 }
 
-func (s LayerSelection) ShouldOnlyRefer(allowed ...Referable) Checker {
-	return s.apply(ShouldOnlyRefer[Layer](allowed...))
+func (s LayerSelection) ShouldOnlyRefer(allowed ...Referable) Rule {
+	return s.apply(shouldOnlyRefer[Layer](allowed...))
 }
 
-func (s LayerSelection) ShouldNotBeReferredBy(forbidden ...Referable) Checker {
-	return s.apply(ShouldNotBeReferredBy[Layer](forbidden...))
+func (s LayerSelection) ShouldNotBeReferredBy(forbidden ...Referable) Rule {
+	return s.apply(shouldNotBeReferredBy[Layer](forbidden...))
 }
 
-func (s LayerSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Checker {
-	return s.apply(ShouldOnlyBeReferredBy[Layer](allowed...))
+func (s LayerSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Rule {
+	return s.apply(shouldOnlyBeReferredBy[Layer](allowed...))
 }
 
 func (s LayerSelection) Packages(matchers ...Matcher[Package]) *PackageSelection {
@@ -316,20 +320,23 @@ func (s PackageSelection) Name() string {
 
 func (s PackageSelection) referable() {}
 
-func (s PackageSelection) ShouldNotRefer(forbidden ...Referable) Checker {
-	return s.apply(ShouldNotRefer[Package](forbidden...))
+func (s PackageSelection) ShouldNotRefer(forbidden ...Referable) Rule {
+	return s.apply(shouldNotRefer[Package](forbidden...))
 }
 
-func (s PackageSelection) ShouldOnlyRefer(allowed ...Referable) Checker {
-	return s.apply(ShouldOnlyRefer[Package](allowed...))
+func (s PackageSelection) ShouldOnlyRefer(allowed ...Referable) Rule {
+	return s.apply(shouldOnlyRefer[Package](allowed...))
 }
 
-func (s PackageSelection) ShouldNotBeReferredBy(forbidden ...Referable) Checker {
-	return s.apply(ShouldNotBeReferredBy[Package](forbidden...))
+func (s PackageSelection) ShouldNotBeReferredBy(forbidden ...Referable) Rule {
+	return s.apply(shouldNotBeReferredBy[Package](forbidden...))
 }
 
-func (s PackageSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Checker {
-	return s.apply(ShouldOnlyBeReferredBy[Package](allowed...))
+func (s PackageSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Rule {
+	return s.apply(shouldOnlyBeReferredBy[Package](allowed...))
+}
+func (s PackageSelection) ShouldBeNamedAsFolderName() Rule {
+	return s.apply(packageNamedAsFolder[Package]())
 }
 
 func (s PackageSelection) Types(matchers ...Matcher[Type]) *TypeSelection {
@@ -408,36 +415,41 @@ func (s TypeSelection) referable() {}
 
 func (s TypeSelection) exportable() {}
 
-func (s TypeSelection) ShouldNotRefer(forbidden ...Referable) Checker {
-	return s.apply(ShouldNotRefer[Type](forbidden...))
+func (s TypeSelection) Exported() bool {
+	// A selection itself is not an object that can be exported.
+	return false
 }
 
-func (s TypeSelection) ShouldOnlyRefer(allowed ...Referable) Checker {
-	return s.apply(ShouldOnlyRefer[Type](allowed...))
+func (s TypeSelection) ShouldNotRefer(forbidden ...Referable) Rule {
+	return s.apply(shouldNotRefer[Type](forbidden...))
 }
 
-func (s TypeSelection) ShouldNotBeReferredBy(forbidden ...Referable) Checker {
-	return s.apply(ShouldNotBeReferredBy[Type](forbidden...))
+func (s TypeSelection) ShouldOnlyRefer(allowed ...Referable) Rule {
+	return s.apply(shouldOnlyRefer[Type](allowed...))
 }
 
-func (s TypeSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Checker {
-	return s.apply(ShouldOnlyBeReferredBy[Type](allowed...))
+func (s TypeSelection) ShouldNotBeReferredBy(forbidden ...Referable) Rule {
+	return s.apply(shouldNotBeReferredBy[Type](forbidden...))
 }
 
-func (s TypeSelection) ShouldBeExported() Checker {
-	return s.apply(ShouldBeExported[Type]())
+func (s TypeSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Rule {
+	return s.apply(shouldOnlyBeReferredBy[Type](allowed...))
 }
 
-func (s TypeSelection) ShouldNotBeExported() Checker {
-	return s.apply(ShouldNotBeExported[Type]())
+func (s TypeSelection) ShouldBeExported() Rule {
+	return s.apply(shouldBeExported[Type]())
 }
 
-func (s TypeSelection) ShouldResideInPackages(packagePatterns ...string) Checker {
-	return s.apply(ShouldResideInPackages[Type](packagePatterns...))
+func (s TypeSelection) ShouldNotBeExported() Rule {
+	return s.apply(shouldNotBeExported[Type]())
 }
 
-func (s TypeSelection) ShouldResideInLayers(layers ...*Layer) Checker {
-	return s.apply(ShouldResideInLayers[Type](layers...))
+func (s TypeSelection) ShouldResideInPackages(packagePatterns ...string) Rule {
+	return s.apply(shouldResideInPackages[Type](packagePatterns...))
+}
+
+func (s TypeSelection) ShouldResideInLayers(layers ...*Layer) Rule {
+	return s.apply(shouldResideInLayers[Type](layers...))
 }
 
 func (s TypeSelection) Methods(matchers ...Matcher[Function]) *FunctionSelection {
@@ -467,20 +479,25 @@ func (s FunctionSelection) Name() string {
 
 func (s FunctionSelection) exportable() {}
 
-func (s FunctionSelection) ShouldBeExported() Checker {
-	return s.apply(ShouldBeExported[Function]())
+func (s FunctionSelection) Exported() bool {
+	// A selection itself is not an object that can be exported.
+	return false
 }
 
-func (s FunctionSelection) ShouldNotBeExported() Checker {
-	return s.apply(ShouldNotBeExported[Function]())
+func (s FunctionSelection) ShouldBeExported() Rule {
+	return s.apply(shouldBeExported[Function]())
 }
 
-func (s FunctionSelection) ShouldResideInPackages(packagePatterns ...string) Checker {
-	return s.apply(ShouldResideInPackages[Function](packagePatterns...))
+func (s FunctionSelection) ShouldNotBeExported() Rule {
+	return s.apply(shouldNotBeExported[Function]())
 }
 
-func (s FunctionSelection) ShouldResideInLayers(layers ...*Layer) Checker {
-	return s.apply(ShouldResideInLayers[Function](layers...))
+func (s FunctionSelection) ShouldResideInPackages(packagePatterns ...string) Rule {
+	return s.apply(shouldResideInPackages[Function](packagePatterns...))
+}
+
+func (s FunctionSelection) ShouldResideInLayers(layers ...*Layer) Rule {
+	return s.apply(shouldResideInLayers[Function](layers...))
 }
 
 type VariableSelection struct {
@@ -493,20 +510,25 @@ func (s VariableSelection) Name() string {
 
 func (s VariableSelection) exportable() {}
 
-func (s VariableSelection) ShouldBeExported() Checker {
-	return s.apply(ShouldBeExported[Variable]())
+func (s VariableSelection) Exported() bool {
+	// A selection itself is not an object that can be exported.
+	return false
 }
 
-func (s VariableSelection) ShouldNotBeExported() Checker {
-	return s.apply(ShouldNotBeExported[Variable]())
+func (s VariableSelection) ShouldBeExported() Rule {
+	return s.apply(shouldBeExported[Variable]())
 }
 
-func (s VariableSelection) ShouldResideInPackages(packagePatterns ...string) Checker {
-	return s.apply(ShouldResideInPackages[Variable](packagePatterns...))
+func (s VariableSelection) ShouldNotBeExported() Rule {
+	return s.apply(shouldNotBeExported[Variable]())
 }
 
-func (s VariableSelection) ShouldResideInLayers(layers ...*Layer) Checker {
-	return s.apply(ShouldResideInLayers[Variable](layers...))
+func (s VariableSelection) ShouldResideInPackages(packagePatterns ...string) Rule {
+	return s.apply(shouldResideInPackages[Variable](packagePatterns...))
+}
+
+func (s VariableSelection) ShouldResideInLayers(layers ...*Layer) Rule {
+	return s.apply(shouldResideInLayers[Variable](layers...))
 }
 
 // --- Top-level Selectors ---
@@ -656,6 +678,10 @@ type Function struct {
 
 func (f Function) Name() string { return f.name }
 
+func (f Function) Exported() bool {
+	return f.internalFunc.Exported()
+}
+
 // Params returns the function's parameters.
 func (f Function) Params() []Param {
 	return f.internalFunc.Params()
@@ -695,6 +721,10 @@ type Type struct {
 
 func (t Type) Name() string { return t.name }
 
+func (t Type) Exported() bool {
+	return t.internalType.Exported()
+}
+
 // IsInterface returns true if the type is an interface.
 func (t Type) IsInterface() bool {
 	panic("@todo need to implement this from internal first")
@@ -721,6 +751,10 @@ type Variable struct {
 
 func (v Variable) Name() string {
 	return v.name
+}
+
+func (v Variable) Exported() bool {
+	return v.internalVar.Exported()
 }
 
 // Type returns the type of the variable as a string.
@@ -800,6 +834,6 @@ type FileSelection struct {
 	selection[File]
 }
 
-func (s PackageSelection) ShouldNotExceedDepth(max int) Checker {
-	return s.apply(ShouldNotExceedDepth(max))
+func (s PackageSelection) ShouldNotExceedDepth(max int) Rule {
+	return s.apply(shouldNotExceedDepth(max))
 }
