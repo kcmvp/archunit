@@ -13,14 +13,18 @@ import (
 type ViolationCategory string
 
 const (
-	CategoryLayer        ViolationCategory = "Layer"
-	CategoryPackage      ViolationCategory = "Package"
-	CategoryType         ViolationCategory = "Type"
-	CategoryFunction     ViolationCategory = "Function"
-	CategoryVariable     ViolationCategory = "Variable"
-	CategoryFile         ViolationCategory = "File"
-	CategoryFolder       ViolationCategory = "Folder"
-	CategoryUnusedPublic ViolationCategory = "UnusedPublic"
+	CategoryLayer          ViolationCategory = "Layer"
+	CategoryPackage        ViolationCategory = "Package"
+	CategoryType           ViolationCategory = "Type"
+	CategoryFunction       ViolationCategory = "Function"
+	CategoryVariable       ViolationCategory = "Variable"
+	CategoryFile           ViolationCategory = "File"
+	CategoryFolder         ViolationCategory = "Folder"
+	CategoryUnusedPublic   ViolationCategory = "UnusedPublic"
+	CategoryNaming         ViolationCategory = "Naming"
+	CategoryDependency     ViolationCategory = "Dependency"
+	CategoryInitialization ViolationCategory = "Initialization"
+	CategoryLocation       ViolationCategory = "Location"
 )
 
 // ViolationError is a structured error type that categorizes validation failures.
@@ -54,7 +58,7 @@ func (f ruleFunc) check(arch Architecture, objects ...ArchObject) error {
 }
 
 // packageNamedAsFolder checks if a Package's name matches its folder's name.
-func packageNamedAsFolder[T ArchObject]() Rule {
+func packageNamedAsFolder() Rule {
 	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		var violations []string
 		a := arch.(*architecture)
@@ -421,7 +425,7 @@ func shouldBeExported[T Exportable]() Rule {
 
 		if len(violations) > 0 {
 			return &ViolationError{
-				category:   "Naming",
+				category:   CategoryNaming,
 				Violations: violations,
 			}
 		}
@@ -450,7 +454,7 @@ func shouldNotBeExported[T Exportable]() Rule {
 
 		if len(violations) > 0 {
 			return &ViolationError{
-				category:   "Naming",
+				category:   CategoryNaming,
 				Violations: violations,
 			}
 		}
@@ -467,23 +471,24 @@ func shouldResideInPackages[T Exportable](packagePatterns ...string) Rule {
 		}
 		var violations []string
 		for _, object := range objects {
-			item, ok := object.(Variable)
+			locatable, ok := object.(interface{ PackagePath() string })
 			if !ok {
-				return fmt.Errorf("internal error: shouldResideInPackages expected type %T but got %T", *new(T), object)
+				continue // Should not happen for the types that use this rule.
 			}
+
 			match := lo.SomeBy(packagePatterns, func(pattern string) bool {
-				match, _ := filepath.Match(pattern, item.PackagePath())
+				match, _ := filepath.Match(pattern, locatable.PackagePath())
 				return match
 			})
 			if !match {
-				violation := fmt.Sprintf("object <%s> should reside in packages %s", item.Name(), strings.Join(packagePatterns, ","))
+				violation := fmt.Sprintf("object <%s> should reside in packages %s", object.Name(), strings.Join(packagePatterns, ", "))
 				violations = append(violations, violation)
 			}
 		}
 
 		if len(violations) > 0 {
 			return &ViolationError{
-				category:   "Location",
+				category:   CategoryLocation,
 				Violations: violations,
 			}
 		}
@@ -499,10 +504,11 @@ func shouldResideInLayers[T Exportable](layers ...*Layer) Rule {
 		}
 		var violations []string
 		for _, object := range objects {
-			item, ok := object.(Type)
+			locatable, ok := object.(interface{ PackagePath() string })
 			if !ok {
-				return fmt.Errorf("internal error: shouldResideInLayers expected type %T but got %T", *new(T), object)
+				continue // Should not happen for the types that use this rule.
 			}
+
 			found := false
 			for _, layer := range layers {
 				layerPkgs, err := selectPackagesByPattern(arch, layer.rootFolder)
@@ -510,7 +516,7 @@ func shouldResideInLayers[T Exportable](layers ...*Layer) Rule {
 					return err
 				}
 				for _, pkg := range layerPkgs {
-					if item.PackagePath() == pkg.ID() {
+					if locatable.PackagePath() == pkg.ID() {
 						found = true
 						break
 					}
@@ -520,7 +526,7 @@ func shouldResideInLayers[T Exportable](layers ...*Layer) Rule {
 				}
 			}
 			if !found {
-				violation := fmt.Sprintf("object <%s> should reside in layers %s", item.Name(), strings.Join(lo.Map(layers, func(l *Layer, _ int) string {
+				violation := fmt.Sprintf("object <%s> should reside in layers %s", object.Name(), strings.Join(lo.Map(layers, func(l *Layer, _ int) string {
 					return l.Name()
 				}), ","))
 				violations = append(violations, violation)
@@ -529,64 +535,10 @@ func shouldResideInLayers[T Exportable](layers ...*Layer) Rule {
 
 		if len(violations) > 0 {
 			return &ViolationError{
-				category:   "Location",
+				category:   CategoryLocation,
 				Violations: violations,
 			}
 		}
-		return nil
-	})
-}
-
-// --- Specific Rule Constructors ---
-
-// shouldNotExceedDepth creates a rule that asserts a package's depth does not exceed a max value.
-func shouldNotExceedDepth(max int) Rule {
-	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
-		a := arch.(*architecture)
-		rootDir := a.artifact.RootDir()
-		var violations []string
-
-		for _, object := range objects {
-			pkg, ok := object.(Package)
-			if !ok {
-				return fmt.Errorf("internal error: shouldNotExceedDepth expected type Package but got %T", object)
-			}
-			internalPkg := a.artifact.Package(pkg.Name())
-			if internalPkg == nil || len(internalPkg.GoFiles()) == 0 {
-				continue
-			}
-			pkgDir := filepath.Dir(internalPkg.GoFiles()[0])
-
-			if !strings.HasPrefix(pkgDir, rootDir) {
-				continue
-			}
-
-			relPath, err := filepath.Rel(rootDir, pkgDir)
-			if err != nil {
-				// This would be an unexpected error, so we return it directly.
-				return fmt.Errorf("could not calculate relative path for %s: %w", pkgDir, err)
-			}
-
-			relPath = filepath.ToSlash(relPath)
-
-			var depth int
-			if relPath != "." {
-				depth = strings.Count(relPath, "/") + 1
-			}
-
-			if depth > max {
-				violation := fmt.Sprintf("package <%s> exceeds max folder depth of %d (actual: %d)", pkg.Name(), max, depth)
-				violations = append(violations, violation)
-			}
-		}
-
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryPackage,
-				Violations: violations,
-			}
-		}
-
 		return nil
 	})
 }

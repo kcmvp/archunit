@@ -833,7 +833,3 @@ func toMatcher[T ArchObject](matchers []Matcher[T]) Matcher[T] {
 type FileSelection struct {
 	selection[File]
 }
-
-func (s PackageSelection) ShouldNotExceedDepth(max int) Rule {
-	return s.apply(shouldNotExceedDepth(max))
-}

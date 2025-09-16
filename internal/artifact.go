@@ -3,7 +3,11 @@ package internal
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -12,6 +16,13 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/tools/go/packages"
 )
+
+// UnorderedDeclaration represents a single violation of declaration grouping or ordering rules.
+type UnorderedDeclaration struct {
+	FilePath    string
+	Line        int
+	Description string
+}
 
 type ParseMode int
 
@@ -41,14 +52,6 @@ type Function struct {
 	raw *types.Func
 }
 
-func (f Function) Raw() *types.Func {
-	return f.raw
-}
-
-func (f Function) Exported() bool {
-	return f.raw.Exported()
-}
-
 type Type struct {
 	raw *types.TypeName
 }
@@ -57,18 +60,26 @@ type Variable struct {
 	raw *types.Var
 }
 
+type Artifact struct {
+	rootDir string
+	module  string
+	pkgs    sync.Map
+}
+
+func (f Function) Raw() *types.Func {
+	return f.raw
+}
+
+func (f Function) Exported() bool {
+	return f.raw.Exported()
+}
+
 func (v Variable) Raw() *types.Var {
 	return v.raw
 }
 
 func (v Variable) Exported() bool {
 	return v.raw.Exported()
-}
-
-type Artifact struct {
-	rootDir string
-	module  string
-	pkgs    sync.Map
 }
 
 func (artifact *Artifact) RootDir() string {
@@ -84,8 +95,9 @@ func Arch() *Artifact {
 		rootDir, module := utils.ProjectInfo()
 		arch = &Artifact{rootDir: rootDir, module: module}
 		cfg := &packages.Config{
-			Mode: packages.NeedName | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedFiles | packages.NeedTypesInfo | packages.NeedDeps | packages.NeedImports | packages.NeedSyntax,
-			Dir:  arch.rootDir,
+			Mode:  packages.NeedName | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedFiles | packages.NeedTypesInfo | packages.NeedDeps | packages.NeedImports | packages.NeedSyntax,
+			Dir:   arch.rootDir,
+			Tests: true,
 		}
 		pkgs, err := packages.Load(cfg, "./...")
 		if err != nil {
@@ -313,6 +325,182 @@ func (artifact *Artifact) UnusedPublicDeclarations() []string {
 		}
 	}
 	return unused
+}
+
+func (artifact *Artifact) FilesReferencedByTest() map[string][]string {
+	referredFiles := map[string][]string{}
+	var mu sync.Mutex
+
+	artifact.pkgs.Range(func(_, value any) bool {
+		pkg := value.(*Package)
+		if !lo.SomeBy(pkg.raw.GoFiles, func(file string) bool { return strings.HasSuffix(file, "_test.go") }) {
+			return true // not a test package
+		}
+
+		pkgDir := ""
+		if len(pkg.raw.GoFiles) > 0 {
+			pkgDir = filepath.Dir(pkg.raw.GoFiles[0])
+		} else {
+			return true
+		}
+
+		for i, fileAst := range pkg.raw.Syntax {
+			testFilePath := pkg.raw.GoFiles[i]
+			if !strings.HasSuffix(testFilePath, "_test.go") {
+				continue
+			}
+
+			hasEmbedImport := lo.SomeBy(fileAst.Imports, func(imp *ast.ImportSpec) bool {
+				path, err := strconv.Unquote(imp.Path.Value)
+				return err == nil && path == "embed"
+			})
+			hasIOImport := lo.SomeBy(fileAst.Imports, func(imp *ast.ImportSpec) bool {
+				path, err := strconv.Unquote(imp.Path.Value)
+				return err == nil && (path == "os" || path == "io" || path == "io/ioutil")
+			})
+
+			if !hasEmbedImport && !hasIOImport {
+				continue
+			}
+
+			var filesInTest []string
+			ast.Inspect(fileAst, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.BasicLit:
+					if hasIOImport && x.Kind == token.STRING {
+						path, err := strconv.Unquote(x.Value)
+						if err != nil {
+							return true
+						}
+						if strings.Contains(path, "/") || strings.Contains(path, `\`) {
+							absPath := path
+							if !filepath.IsAbs(path) {
+								absPath = filepath.Join(pkgDir, path)
+							}
+							if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
+								filesInTest = append(filesInTest, absPath)
+							}
+						}
+					}
+				case *ast.GenDecl:
+					if hasEmbedImport && x.Doc != nil {
+						for _, comment := range x.Doc.List {
+							if strings.HasPrefix(comment.Text, "//go:embed") {
+								line := strings.TrimPrefix(comment.Text, "//go:embed")
+								fields := strings.Fields(line)
+								for _, field := range fields {
+									absPath := filepath.Join(pkgDir, field)
+									if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
+										filesInTest = append(filesInTest, absPath)
+									}
+								}
+							}
+						}
+					}
+				}
+				return true
+			})
+
+			if len(filesInTest) > 0 {
+				mu.Lock()
+				referredFiles[testFilePath] = append(referredFiles[testFilePath], filesInTest...)
+				mu.Unlock()
+			}
+		}
+		return true
+	})
+
+	// Deduplicate
+	for testFile, files := range referredFiles {
+		referredFiles[testFile] = lo.Uniq(files)
+	}
+
+	return referredFiles
+}
+
+// UnorderedDeclarations scans all Go files in the project for out-of-order or
+// improperly grouped const and var declarations.
+//
+// This method is optimized to be "fail-fast": for each file, it stops and reports
+// only the *first* violation found. It checks that all "normal" (non-embed, non-linkname)
+// const and var declarations are in single, parenthesized blocks and that they appear
+// in the correct order (imports, then consts, then vars).
+func (artifact *Artifact) UnorderedDeclarations() []UnorderedDeclaration {
+	var violations []UnorderedDeclaration
+	for _, pkg := range artifact.Packages(true) {
+	fileLoop:
+		for i, fileAst := range pkg.raw.Syntax {
+			filePath := pkg.raw.GoFiles[i]
+			if strings.HasSuffix(filePath, "_test.go") {
+				continue
+			}
+
+			var constsFound, varsFound, funcsOrTypesFound int
+
+			for _, decl := range fileAst.Decls {
+				line := pkg.raw.Fset.Position(decl.Pos()).Line
+
+				genDecl, ok := decl.(*ast.GenDecl)
+				if !ok {
+					funcsOrTypesFound++
+					continue
+				}
+
+				if genDecl.Tok == token.IMPORT {
+					continue
+				}
+
+				isSpecial := false
+				if genDecl.Tok == token.VAR && genDecl.Doc != nil {
+					for _, comment := range genDecl.Doc.List {
+						if strings.HasPrefix(comment.Text, "//go:embed") || strings.HasPrefix(comment.Text, "//go:linkname") {
+							isSpecial = true
+							break
+						}
+					}
+				}
+				if isSpecial {
+					continue
+				}
+
+				var violationMsg string
+				switch genDecl.Tok {
+				case token.CONST:
+					if funcsOrTypesFound > 0 {
+						violationMsg = "const declaration appears after a function or type declaration"
+					} else if varsFound > 0 {
+						violationMsg = "const declaration appears after a var declaration"
+					} else if len(genDecl.Specs) > 1 && !genDecl.Lparen.IsValid() {
+						violationMsg = "multiple const declarations must be in a parenthesized block"
+					} else if len(genDecl.Specs) == 1 && genDecl.Lparen.IsValid() {
+						violationMsg = "single const declaration should not be in a parenthesized block"
+					} else if constsFound > 0 {
+						violationMsg = "multiple const blocks found in the same file"
+					}
+					constsFound++
+				case token.VAR:
+					if funcsOrTypesFound > 0 {
+						violationMsg = "var declaration appears after a function or type declaration"
+					} else if len(genDecl.Specs) > 1 && !genDecl.Lparen.IsValid() {
+						violationMsg = "multiple var declarations must be in a parenthesized block"
+					} else if len(genDecl.Specs) == 1 && genDecl.Lparen.IsValid() {
+						violationMsg = "single var declaration should not be in a parenthesized block"
+					} else if varsFound > 0 {
+						violationMsg = "multiple var blocks found in the same file"
+					}
+					varsFound++
+				default:
+					funcsOrTypesFound++
+				}
+
+				if violationMsg != "" {
+					violations = append(violations, UnorderedDeclaration{filePath, line, violationMsg})
+					continue fileLoop
+				}
+			}
+		}
+	}
+	return violations
 }
 
 func (pkg *Package) Raw() *packages.Package {
