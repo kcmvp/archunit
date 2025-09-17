@@ -6,12 +6,17 @@
 
 ## Key Features
 
-*   **Declarative, Fluent API:** Define architectural rules in a clear and readable way.
-*   **Pre-defined Rules:** Get started quickly with a comprehensive set of rules for common Go best practices.
-*   **Custom Rules:** Easily create your own custom rules to enforce project-specific constraints.
-*   **Layered Architecture Validation:** Define and enforce dependencies between architectural layers.
-*   **Dependency Checking:** Prevent illegal dependencies between packages, types, and layers.
-*   **Naming Convention Enforcement:** Ensure your code follows consistent naming conventions.
+*   **Declarative, Fluent API:** `archunit` provides a fluent and declarative API that allows you to define architectural rules in a clear, readable, and chainable way. This makes your architecture tests easy to understand and maintain.
+
+*   **Functional Approach:** The library promotes a functional style by treating rules as first-class citizens. You can define, combine, and pass rules as functions, leading to more modular and reusable architecture tests.
+
+*   **Generic Support:** `archunit` leverages Go generics to provide type-safe and reusable selections and rules. This reduces boilerplate code, improves type safety, and makes your architecture tests more robust.
+
+*   **Rich Pre-defined Rules:** Get started quickly with a comprehensive set of pre-defined rules for common Go best practices. These rules cover a wide range of checks, from naming conventions and package structure to dependency management and API design.
+
+*   **Code as Promotion: AI-Guided Development:** `archunit` introduces a "Code as Promotion" paradigm, where your architectural rules act as a direct guide for AI code generation.
+    *   **AI-Friendly Code Style:** The declarative and readable rules serve as a machine-readable design specification. This guides AI tools to generate code that is always aligned with your intended architecture.
+    *   **Native AI Feedback Loop:** When a rule is violated, the assertion output is structured as a clear and actionable prompt. This "promotion" can be fed directly back to the AI, enabling it to learn from its mistakes and automatically correct the code, creating a powerful and efficient development feedback loop.
 
 ## Installation
 
