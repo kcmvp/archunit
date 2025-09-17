@@ -1,7 +1,5 @@
 # ArchUnit for Go
 
-**A Go library for checking architecture, inspired by [ArchUnit](https://www.archunit.org/).**
-
 `archunit` is a powerful and flexible library for enforcing architectural rules in your Go projects. It helps you maintain a clean and robust architecture by providing a fluent and declarative API for defining and validating architectural constraints. With `archunit`, you can ensure your code adheres to your intended design, preventing unwanted dependencies and maintaining modularity.
 
 ## Key Features
