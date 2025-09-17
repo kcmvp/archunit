@@ -2,6 +2,7 @@ package archunit
 
 import (
 	"fmt"
+	"go/types"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -10,22 +11,37 @@ import (
 	"github.com/samber/lo"
 )
 
-// BestPractices is a convenience function that bundles all the global rules into a single slice.
-// This makes it easy to apply all the recommended best practices with a single function call.
-func BestPractices(maxPackageDepth int, configFolderName string) []Rule {
-	return []Rule{
-		ConstantsShouldBeConsolidated(),
-		VariablesShouldBeUsedInDefiningFile(),
-		ConfigurationFilesShouldBeInFolder(configFolderName),
-		NoPublicVariables(),
-		NoUnusedPublicDeclarations(),
+// BestPractices is a convenience function that bundles a comprehensive set of globally applicable architectural rules.
+// This function makes it easy to enforce common Go best practices across an entire project with a single, configurable rule.
+//
+// The bundled rules cover various aspects of code quality, including:
+//   - **Naming Conventions:** Ensures variables and constants use MixedCaps (e.g., `VariablesAndConstantsShouldUseMixedCaps`).
+//   - **Package Structure:** Checks for proper package naming and depth (e.g., `PackageNamedAsFolder`, `PackagesShouldNotExceedDepth`).
+//   - **Declaration Style:** Enforces grouping of constants and variables (e.g., `ConstantsAndVariablesShouldBeGrouped`).
+//   - **API Design:** Promotes clean public APIs by checking for unused public declarations and proper function signatures (e.g., `NoUnusedPublicDeclarations`, `ContextShouldBeFirstParam`, `ErrorShouldBeLastReturn`).
+//   - **State Management:** Guards against global mutable state (e.g., `NoPublicReAssignableVariables`).
+//   - **Code Organization:** Ensures configuration and test data are in dedicated folders (e.g., `ConfigurationFilesShouldBeInFolder`, `TestDataShouldBeInTestDataFolder`).
+//
+// Parameters:
+//   - `maxPackageDepth`: An integer specifying the maximum allowed depth of nested packages. This helps maintain a flat and manageable project structure.
+//   - `configFolderName`: A string for the name of the folder where configuration files (e.g., .yaml, .json) should be stored.
+func BestPractices(maxPackageDepth int, configFolderName string) Rule {
+	return ChainRules(
 		AtMostOneInitFuncPerPackage(),
-		ErrorShouldBeReturnedLast(),
-		TestDataShouldBeInTestDataFolder(),
-		PackagesShouldNotExceedDepth(maxPackageDepth),
-		ContextShouldBeFirstParam(),
+		ConfigurationFilesShouldBeInFolder(configFolderName),
 		ConstantsAndVariablesShouldBeGrouped(),
-	}
+		ConstantsShouldBeConsolidated(),
+		ContextShouldBeFirstParam(),
+		ContextKeysShouldBePrivateType(),
+		ErrorShouldBeLastReturn(),
+		NoPublicReAssignableVariables(),
+		NoUnusedPublicDeclarations(),
+		PackageNamedAsFolder(),
+		PackagesShouldNotExceedDepth(maxPackageDepth),
+		TestDataShouldBeInTestDataFolder(),
+		VariablesShouldBeUsedInDefiningFile(),
+		VariablesAndConstantsShouldUseMixedCaps(),
+	)
 }
 
 // --- Global Checkers ---
@@ -70,14 +86,10 @@ func ConstantsShouldBeConsolidated() Rule {
 			}
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryPackage,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryPackage,
+			Violations: violations,
+		}, nil)
 	})
 }
 
@@ -109,14 +121,10 @@ func VariablesShouldBeUsedInDefiningFile() Rule {
 			}
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryVariable,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryVariable,
+			Violations: violations,
+		}, nil)
 	})
 }
 
@@ -180,59 +188,78 @@ func ConfigurationFilesShouldBeInFolder(folderName string) Rule {
 			return err
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryFolder,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryFolder,
+			Violations: violations,
+		}, nil)
 	})
 }
 
-// NoPublicVariables creates a rule that checks for exported package-level variables.
-// This is a valuable global rule for preventing global mutable state, which can make code harder to reason about.
-// The rule iterates through all variables in application packages and checks if they are exported.
+// NoPublicReAssignableVariables creates a rule that prevents the use of exported package-level variables
+// that can be reassigned by other packages. Publicly re-assignable variables are a form of uncontrolled
+// global state, which can lead to hidden dependencies, concurrency issues, and difficult testing.
+//
+// The rule enforces that a public 'var' is only allowed if its underlying type is private.
+// This heuristic correctly identifies and permits the idiomatic Go pattern for context keys, where the
+// variable's unique identity is important but its value is controlled by its private type.
 //
 // Example:
 //
-// Given a file 'mypackage/vars.go':
+//	// Allowed: The variable is public, but its type is private, preventing uncontrolled reassignment.
+//	type myContextKey struct{}
+//	var MyContextKey = myContextKey{}
 //
-//	package mypackage
+//	// Disallowed: The variable and its type (int) are both public, allowing any package to reassign it.
+//	var PublicCounter = 0
 //
-//	var ExportedVar = "hello" // Violation: Exported package-level variable
-//	var unexportedVar = "world"
-//
-// This rule would flag a violation for 'ExportedVar'.
-func NoPublicVariables() Rule {
+//	// Disallowed: The variable and its underlying type (Config) are both public.
+//	type Config struct{ Timeout int }
+//	var DefaultConfig = &Config{ Timeout: 5 }
+func NoPublicReAssignableVariables() Rule {
 	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		a := arch.(*architecture)
 		var violations []string
 
 		for _, pkg := range a.artifact.Packages(true) {
 			for _, v := range pkg.Variables() {
-				if v.Exported() {
-					violation := fmt.Sprintf("package-level variable <%s> should not be public", v.FullName())
+				if !v.Exported() {
+					continue
+				}
+
+				// This is the core logic: an exported variable is only safe if its type is not exported.
+				// We need to find the underlying named type, even if it's behind a pointer.
+
+				underlyingType := v.Type()
+				if ptr, isPtr := underlyingType.(*types.Pointer); isPtr {
+					underlyingType = ptr.Elem()
+				}
+
+				var typeIsExported bool
+				if named, isNamed := underlyingType.(*types.Named); isNamed {
+					// It's a named type. Check if the type name itself is exported.
+					typeIsExported = named.Obj().Exported()
+				} else {
+					// It's an unnamed type (e.g., a built-in like int, a struct literal, an interface, etc.).
+					// We consider these "public" by default for safety, as they can be created and used anywhere.
+					typeIsExported = true
+				}
+
+				if typeIsExported {
+					violation := fmt.Sprintf("exported variable <%s> is re-assignable and has a public type, creating uncontrolled global state; consider making the variable private or using a private type", v.FullName())
 					violations = append(violations, violation)
 				}
 			}
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryVariable,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryVariable,
+			Violations: violations,
+		}, nil)
 	})
 }
 
-// NoUnusedPublicDeclarations creates a rule that checks for exported types, methods, and functions that are not used by any other package in the project.
-// This helps maintain a minimal and clean public API surface and identifies dead code.
-// The rule first collects all exported declarations from application packages and then checks for their usage in all packages (including tests).
+// NoUnusedPublicDeclarations creates a rule to enforce that if a declaration is public, it must be referred to from outside its package.
+// Otherwise, the declaration should be private. This helps to reduce the public API surface of a package.
 //
 // Example:
 //
@@ -256,22 +283,18 @@ func NoPublicVariables() Rule {
 //		// ExportedFunction is not called here
 //	}
 //
-// This rule would flag a violation for 'mypackage.ExportedFunction' if it's not used anywhere else in the project.
+// This rule would flag a violation for 'mypackage.ExportedFunction' if it is not referred to from any other package.
 func NoUnusedPublicDeclarations() Rule {
 	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		a := arch.(*architecture)
 		violations := lo.Map(a.artifact.UnusedPublicDeclarations(), func(obj string, _ int) string {
-			return fmt.Sprintf("exported object <%s> is not used by any other package", obj)
+			return fmt.Sprintf("public declaration <%s> is not referred to from outside its package and should be private", obj)
 		})
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryUnusedPublic,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryUnusedPublic,
+			Violations: violations,
+		}, nil)
 	})
 }
 
@@ -310,18 +333,14 @@ func AtMostOneInitFuncPerPackage() Rule {
 			}
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryPackage,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryPackage,
+			Violations: violations,
+		}, nil)
 	})
 }
 
-// ErrorShouldBeReturnedLast creates a rule that checks if functions that return an error do so as their last return parameter.
+// ErrorShouldBeLastReturn creates a rule that checks if functions that return an error do so as their last return parameter.
 // This enforces a strong convention in the Go community that makes error handling consistent and predictable.
 // The rule inspects the signature of all functions and methods in the project.
 //
@@ -334,7 +353,7 @@ func AtMostOneInitFuncPerPackage() Rule {
 //	}
 //
 // This rule would flag a violation because the error is not the last return value.
-func ErrorShouldBeReturnedLast() Rule {
+func ErrorShouldBeLastReturn() Rule {
 	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		a := arch.(*architecture)
 		var violations []string
@@ -366,14 +385,10 @@ func ErrorShouldBeReturnedLast() Rule {
 			}
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryFunction,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryFunction,
+			Violations: violations,
+		}, nil)
 	})
 }
 
@@ -423,14 +438,10 @@ func TestDataShouldBeInTestDataFolder() Rule {
 			}
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryFolder,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryFolder,
+			Violations: violations,
+		}, nil)
 	})
 }
 
@@ -488,14 +499,10 @@ func PackagesShouldNotExceedDepth(max int) Rule {
 			}
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryPackage,
-				Violations: violations,
-			}
-		}
-
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryPackage,
+			Violations: violations,
+		}, nil)
 	})
 }
 
@@ -546,14 +553,53 @@ func ContextShouldBeFirstParam() Rule {
 			}
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryFunction,
-				Violations: violations,
-			}
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryFunction,
+			Violations: violations,
+		}, nil)
+	})
+}
+
+// ContextKeysShouldBePrivateType creates a rule that prevents using built-in or public types (like string, int, etc.)
+// as keys in context.WithValue. This is to avoid accidental key collisions between packages.
+// The idiomatic Go pattern is to create a public variable of a private type to serve as a safe, uncollidable key.
+//
+// Example of a good key:
+//
+//	package mypackage
+//
+//	type myKeyType struct{}
+//
+//	var MyKey = myKeyType{}
+//
+//	// Usage:
+//	ctx = context.WithValue(ctx, MyKey, "some-value")
+//
+// Example of a bad key (will be flagged):
+//
+//	package mypackage
+//
+//	// Usage with a built-in type:
+//	ctx = context.WithValue(ctx, "user_id", 123) // BAD: string key
+//
+//	// Usage with a public type:
+//	type PublicKey string
+//	var MyKey PublicKey = "my-key"
+//	ctx = context.WithValue(ctx, MyKey, "some-value") // BAD: public key type
+func ContextKeysShouldBePrivateType() Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		a := arch.(*architecture)
+		var violations []string
+
+		for _, callSite := range a.artifact.ContextKeyWithPublicType() {
+			violation := fmt.Sprintf("a built-in or public type was used as a context key at %s:%d. To avoid key collisions, use a variable of a private type as the key.", callSite.FilePath, callSite.Line)
+			violations = append(violations, violation)
 		}
 
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryContext,
+			Violations: violations,
+		}, nil)
 	})
 }
 
@@ -571,15 +617,17 @@ func ContextShouldBeFirstParam() Rule {
 //		"fmt"
 //	)
 //
-//	const MyConst = "value" // Violation: Single const not in block
+//	const MyConst1 = "value1"
+//	const MyConst2 = "value2" // Violation: Multiple const declarations not in a block
 //
-//	var MyVar = "variable" // Violation: Single var not in block
+//	var MyVar1 = "variable1"
+//	var MyVar2 = "variable2" // Violation: Multiple var declarations not in a block
 //
 //	func MyFunction() {
 //		fmt.Println("hello")
 //	}
 //
-// This rule would flag violations for 'MyConst' and 'MyVar' because they are single declarations not in a block.
+// This rule would flag a violation for 'MyConst1', 'MyConst2', 'MyVar1', and 'MyVar2' because multiple declarations are not grouped into single parenthesized blocks.
 func ConstantsAndVariablesShouldBeGrouped() Rule {
 	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
 		a := arch.(*architecture)
@@ -589,13 +637,100 @@ func ConstantsAndVariablesShouldBeGrouped() Rule {
 			violations = append(violations, violation)
 		}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryPackage,
-				Violations: violations,
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryPackage,
+			Violations: violations,
+		}, nil)
+	})
+}
+
+// PackageNamedAsFolder creates a rule that checks if a package's name matches its folder's name.
+// This is a good practice to maintain consistency between the package declaration and the file system structure.
+// The rule iterates through all application packages and compares the declared package name with the directory name.
+//
+// Example:
+//
+// Given a file at path 'myproject/mypackage/mypackage.go':
+//
+//	package mypackage // Correct
+//
+// Given a file at path 'myproject/anotherpackage/another.go':
+//
+//	package mypackage // Violation: package name 'mypackage' does not match folder name 'anotherpackage'
+func PackageNamedAsFolder() Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		var violations []string
+		a := arch.(*architecture)
+
+		for _, pkg := range a.artifact.Packages(true) {
+			// Assumption: internal.Package has a Name() method returning the declared package name.
+			declaredName := pkg.Name()
+			folderName := filepath.Base(pkg.ID())
+
+			if declaredName != folderName {
+				violation := fmt.Sprintf("package <%s>'s name should be <%s> (the folder name), but is <%s>", pkg.ID(), folderName, declaredName)
+				violations = append(violations, violation)
 			}
 		}
 
-		return nil
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryPackage,
+			Violations: violations,
+		}, nil)
+	})
+}
+
+// VariablesAndConstantsShouldUseMixedCaps creates a rule that checks if all package-level variables and constants
+// follow the Go idiomatic naming convention of MixedCaps (or camelCase for unexported identifiers).
+// Go does not use snake_case for names, and this rule helps enforce that standard, improving code readability
+// and consistency with the broader Go ecosystem.
+//
+// The rule checks for any underscores in the name, which is a strong indicator of non-idiomatic naming.
+//
+// Example:
+//
+//	// Good:
+//	const maxConnections = 10
+//	var UserCache *cache.Cache
+//
+//	// Bad (will be flagged):
+//	const MAX_CONNECTIONS = 10
+//	var user_cache *cache.Cache
+//
+// The rule is designed to be practical and ignores single-character names and the blank identifier ('_'),
+// which are common and idiomatic.
+func VariablesAndConstantsShouldUseMixedCaps() Rule {
+	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
+		a := arch.(*architecture)
+		var violations []string
+
+		// Check all application packages
+		for _, pkg := range a.artifact.Packages(true) {
+			scope := pkg.Raw().Types.Scope()
+			for _, name := range scope.Names() {
+				obj := scope.Lookup(name)
+				_, isVar := obj.(*types.Var)
+				_, isConst := obj.(*types.Const)
+
+				if !isVar && !isConst {
+					continue
+				}
+
+				// Ignore short names and the blank identifier
+				if len(name) <= 1 || name == "_" {
+					continue
+				}
+
+				if strings.Contains(name, "_") {
+					violation := fmt.Sprintf("identifier <%s> in package <%s> should use MixedCaps instead of snake_case", name, pkg.ID())
+					violations = append(violations, violation)
+				}
+			}
+		}
+
+		return lo.Ternary(len(violations) > 0, &ViolationError{
+			category:   CategoryNaming,
+			Violations: violations,
+		}, nil)
 	})
 }

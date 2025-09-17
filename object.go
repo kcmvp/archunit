@@ -335,9 +335,6 @@ func (s PackageSelection) ShouldNotBeReferredBy(forbidden ...Referable) Rule {
 func (s PackageSelection) ShouldOnlyBeReferredBy(allowed ...Referable) Rule {
 	return s.apply(shouldOnlyBeReferredBy[Package](allowed...))
 }
-func (s PackageSelection) ShouldBeNamedAsFolderName() Rule {
-	return s.apply(packageNamedAsFolder[Package]())
-}
 
 func (s PackageSelection) Types(matchers ...Matcher[Type]) *TypeSelection {
 	if s.err != nil {

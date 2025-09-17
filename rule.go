@@ -25,6 +25,8 @@ const (
 	CategoryDependency     ViolationCategory = "Dependency"
 	CategoryInitialization ViolationCategory = "Initialization"
 	CategoryLocation       ViolationCategory = "Location"
+	CategoryContext        ViolationCategory = "Context"
+	CategoryBestPractice   ViolationCategory = "BestPractice"
 )
 
 // ViolationError is a structured error type that categorizes validation failures.
@@ -57,43 +59,39 @@ func (f ruleFunc) check(arch Architecture, objects ...ArchObject) error {
 	return f(arch, objects...)
 }
 
-// packageNamedAsFolder checks if a Package's name matches its folder's name.
-func packageNamedAsFolder() Rule {
-	return ruleFunc(func(arch Architecture, objects ...ArchObject) error {
-		var violations []string
-		a := arch.(*architecture)
+// RuleSet is a collection of rules that can be treated as a single rule.
+type RuleSet struct {
+	rules []Rule
+}
 
-		for _, object := range objects {
-			pkg, ok := object.(Package)
-			if !ok {
-				// This should not happen if the rule is applied to a PackageSelection.
-				continue
-			}
-
-			internalPkg := a.artifact.Package(pkg.Name())
-			if internalPkg == nil {
-				continue
-			}
-
-			// Assumption: internal.Package has a Name() method returning the declared package name.
-			declaredName := internalPkg.Name()
-			folderName := filepath.Base(pkg.Name())
-
-			if declaredName != folderName {
-				violation := fmt.Sprintf("package <%s>'s name should be <%s> (the folder name), but is <%s>", pkg.Name(), folderName, declaredName)
-				violations = append(violations, violation)
+// check executes all rules in the RuleSet and aggregates their violations.
+func (rs *RuleSet) check(arch Architecture, objects ...ArchObject) error {
+	var allViolations []string
+	for _, rule := range rs.rules {
+		err := rule.check(arch, objects...)
+		if err != nil {
+			if vErr, ok := err.(*ViolationError); ok {
+				// Prepend the category to each violation message for clarity
+				for _, violation := range vErr.Violations {
+					allViolations = append(allViolations, fmt.Sprintf("[%s] %s", vErr.category, violation))
+				}
+			} else {
+				// Non-violation error
+				return err
 			}
 		}
+	}
 
-		if len(violations) > 0 {
-			return &ViolationError{
-				category:   CategoryPackage,
-				Violations: violations,
-			}
-		}
+	return lo.Ternary(len(allViolations) > 0, &ViolationError{
+		category:   CategoryBestPractice,
+		Violations: allViolations,
+	}, nil)
+}
 
-		return nil
-	})
+// ChainRules combines multiple rules into a single RuleSet.
+// This allows a group of rules to be treated as a single unit.
+func ChainRules(rules ...Rule) Rule {
+	return &RuleSet{rules: rules}
 }
 
 // --- Generic Rule Constructors ---

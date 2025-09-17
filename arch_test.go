@@ -8,28 +8,16 @@ import (
 
 func TestArchUnit(t *testing.T) {
 	// Define architectural layers
-	internalLayer := ArchLayer("Internal", "github.com/kcmvp/archunit/internal/...")
-	appLayer := ArchLayer("App", "github.com/kcmvp/archunit")
 
 	// Define a specific package for a more granular rule
 	utilsPackage := "github.com/kcmvp/archunit/internal/utils"
-
-	// Define a selection of all production packages (excluding samples).
-	productionPackages := Packages(Not(HaveNamePrefix[Package]("github.com/kcmvp/archunit/internal/sample")))
-
+	internalLayer := ArchLayer("Internal", "github.com/kcmvp/archunit/internal/...")
+	AppLayer := ArchLayer("App", "github.com/kcmvp/archunit")
 	// Execute the architectural validation
-	err := ArchUnit(internalLayer, appLayer).Validate(
+	err := ArchUnit(internalLayer, AppLayer).Validate(
 
-		// --- General Coding Conventions ---
-		SourceFiles().NameShould(BeSnakeCase),
-		productionPackages.ShouldBeNamedAsFolderName(),
-		productionPackages.ShouldNotExceedDepth(3), // Set a reasonable max depth
-
-		// --- Dependency check ---
-
-		// 1. Classic Layering: The App layer should not be depended on by the Internal layer.
+		BestPractices(3, "config"),
 		Layers("App").ShouldNotBeReferredBy(Layers("Internal")),
-
 		// 2. Strict Dependencies: The App layer should ONLY depend on the Internal layer (and Go's standard library).
 		Layers("App").ShouldOnlyRefer(Layers("Internal")),
 

@@ -24,6 +24,11 @@ type UnorderedDeclaration struct {
 	Description string
 }
 
+type CallSite struct {
+	FilePath string
+	Line     int
+}
+
 type ParseMode int
 
 const (
@@ -269,6 +274,32 @@ func (artifact *Artifact) Type(typName string) (Type, bool) {
 	return Type{}, false
 }
 
+// UnusedPublicDeclarations scans the entire project to find exported declarations
+// (types, methods, and functions) that are not used by any other package.
+// Such declarations are candidates to be made private to reduce the public API surface and improve encapsulation.
+//
+// The function operates in three main steps:
+//
+// 1.  **Collect All Exported Declarations:** It iterates through all packages identified as part of the application
+//     (i.e., packages within the current Go module). For each package, it collects all exported types, methods,
+//     and package-level functions. These are stored in a map where the key is the `types.Object` and the value
+//     is the package ID where the object is defined.
+//
+// 2.  **Identify Used Declarations:** It then iterates through *all* loaded packages (including application packages,
+//     test packages, and external dependencies). It inspects the `TypesInfo.Uses` map for each package, which records
+//     every object that is referenced within that package's code. If a used object is one of the exported declarations
+//     collected in step 1, and it is used in a *different* package than the one where it was defined, it is marked
+//     as "used."
+//
+// 3.  **Filter and Report Unused:** Finally, the function calculates the set difference between all exported declarations
+//     and the set of used declarations. The result is a list of exported objects that are never used outside their
+//     defining package. Before reporting, it filters out common false positives:
+//     - The `main` function in the `main` package.
+//     - Functions prefixed with `Test`, `Benchmark`, or `Example`, which are entry points for the Go testing tool.
+//
+// **Returns:**
+// A slice of strings, where each string is the fully qualified name of an unused public declaration
+// (e.g., "github.com/myproject/mymodule.MyUnusedFunction").
 func (artifact *Artifact) UnusedPublicDeclarations() []string {
 	// 1. Collect all exported objects from application packages.
 	exportedObjects := map[types.Object]string{}
@@ -325,6 +356,107 @@ func (artifact *Artifact) UnusedPublicDeclarations() []string {
 		}
 	}
 	return unused
+}
+
+// ContextKeyWithPublicType scans all application packages to find calls to
+// `context.WithValue` that use a built-in type (like string, int) or a public
+// custom type as the key. This is an unsafe practice because it creates a risk of
+// key collisions between different packages. The idiomatic and safe way to define
+// context keys is to use a variable of a private type.
+//
+// The function is highly optimized to perform this check efficiently:
+//
+// 1.  **Package Filtering:** It only scans packages that are part of the application,
+//     ignoring test files and external dependencies from the initial search.
+//
+// 2.  **Import Check:** It performs a quick pre-check to see if a package actually
+//     imports "context". If not, it skips the package entirely, avoiding unnecessary
+//     AST traversal.
+//
+// 3.  **Precise Call Identification:** It inspects the AST for call expressions to a
+//     function named "WithValue". Critically, it uses the Go compiler's type
+//     information to resolve the receiver of the call (e.g., the 'context' in
+//     'context.WithValue') and confirms its import path is exactly "context".
+//     This prevents false positives from methods in other packages that might also
+//     be named "WithValue".
+//
+// 4.  **Key Type Analysis:** For each confirmed `context.WithValue` call, it
+//     examines the type of the second argument (the key). A violation is
+//     recorded if:
+//     a. The key's underlying type is a basic, built-in type (`*types.Basic`).
+//     b. The key's type is a named type (`*types.Named`) that is exported.
+//
+// **Returns:**
+// A slice of `CallSite` structs, where each struct contains the file path and
+// line number of a violation. The list is deduplicated to ensure each location
+// is reported only once.
+func (artifact *Artifact) ContextKeyWithPublicType() []CallSite {
+	var violations []CallSite
+	for _, pkg := range artifact.Packages(true) {
+		// 1. Fast check: Does the package import "context"?
+		if _, ok := pkg.raw.Imports["context"]; !ok {
+			continue
+		}
+
+		// 2. Detailed analysis: Inspect AST for context.WithValue calls.
+		for i, fileAst := range pkg.raw.Syntax {
+			filePath := pkg.raw.GoFiles[i]
+			if strings.HasSuffix(filePath, "_test.go") {
+				continue
+			}
+			ast.Inspect(fileAst, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true // Continue traversal
+				}
+
+				// Check if the call is to a selector expression (like `pkg.Func`).
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+
+				// Check if the function name is "WithValue".
+				if sel.Sel.Name != "WithValue" {
+					return true
+				}
+
+				// Resolve the type of the package identifier to see if it's "context".
+				if ident, ok := sel.X.(*ast.Ident); ok {
+					if pkg.raw.TypesInfo.Uses[ident] != nil && pkg.raw.TypesInfo.Uses[ident].Pkg() != nil && pkg.raw.TypesInfo.Uses[ident].Pkg().Path() == "context" {
+						// This is a `context.WithValue` call. Now check the key's type.
+						if len(call.Args) > 1 {
+							key := call.Args[1] // The key is the second argument
+							typ := pkg.raw.TypesInfo.TypeOf(key)
+							if typ == nil {
+								return true // Should not happen in valid code
+							}
+
+							// Check for built-in types.
+							if _, ok := typ.Underlying().(*types.Basic); ok {
+								line := pkg.raw.Fset.Position(key.Pos()).Line
+								violations = append(violations, CallSite{FilePath: filePath, Line: line})
+								return true // Found a violation, no need to inspect children of this node
+							}
+
+							// Check for exported types from any package.
+							if named, ok := typ.(*types.Named); ok {
+								if named.Obj().Exported() {
+									line := pkg.raw.Fset.Position(key.Pos()).Line
+									violations = append(violations, CallSite{FilePath: filePath, Line: line})
+									return true
+								}
+							}
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	return lo.UniqBy(violations, func(c CallSite) string {
+		return fmt.Sprintf("%s:%d", c.FilePath, c.Line)
+	})
 }
 
 func (artifact *Artifact) FilesReferencedByTest() map[string][]string {
