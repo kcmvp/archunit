@@ -85,39 +85,6 @@ To create architectural rules, you combine three main components:
 *   **Matchers**: Are used to filter selections based on their properties, like their name or package path. `archunit` provides built-in matchers like `WithName`, `HaveNamePrefix`, and `HaveNameSuffix`, which can be combined using `AnyOf` and `Not`.
 *   **Rules**: Define the constraints you want to enforce on a selection. Rules are chained to selections, for example, `ShouldNotRefer(...)`, `ShouldOnlyBeReferredBy(...)`, or `NameShould(...)`.
 
-## Advanced Usage
-
-### Layered Architecture
-
-`archunit` is great for enforcing a layered architecture. Here's an example of how to define and validate a classic three-layer architecture:
-
-```go
-func TestLayeredArchitecture(t *testing.T) {
-    var (
-        domainLayer   = archunit.ArchLayer("Domain", "github.com/my-project/domain/...")
-        appLayer      = archunit.ArchLayer("Application", "github.com/my-project/application/...")
-        infraLayer    = archunit.ArchLayer("Infrastructure", "github.com/my-project/infrastructure/...")
-    )
-
-	arch := archunit.ArchUnit(domainLayer, appLayer, infraLayer)
-
-	err := arch.Validate(
-		// The domain layer should not depend on any other layers
-		archunit.Layers("Domain").ShouldNotRefer(appLayer, infraLayer),
-
-		// The application layer should only depend on the domain layer
-		archunit.Layers("Application").ShouldOnlyRefer(domainLayer),
-
-		// The infrastructure layer can depend on the domain and application layers
-		archunit.Layers("Infrastructure").ShouldOnlyRefer(domainLayer, appLayer),
-	)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-```
-
 ## Pre-defined Rules
 
 `archunit` comes with a set of pre-defined rules for common Go best practices, available through the `BestPractices` function. These include checks for:
@@ -141,7 +108,7 @@ These rules are applied to the entire project and are bundled together in the `B
 *   `VariablesShouldBeUsedInDefiningFile`: Checks that variables are used in the file where they are defined.
 *   `VariablesAndConstantsShouldUseMixedCaps`: Enforces the `MixedCaps` naming convention.
 
-### Architectural Object Specific Rules
+### Architectural Object Specific Rules (Generic)
 
 These rules are applied to specific selections of architectural objects.
 
@@ -163,10 +130,6 @@ These rules are applied to specific selections of architectural objects.
 
 *   `NameShould`: Asserts that the names of the selected objects match a given predicate.
 *   `NameShouldNot`: Asserts that the names of the selected objects do not match a given predicate.
-
-## API Reference
-
-For a complete API reference, see the [GoDoc](https://pkg.go.dev/github.com/kcmvp/archunit).
 
 ## Contributing
 
