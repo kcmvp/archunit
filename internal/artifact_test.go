@@ -1,320 +1,290 @@
 package internal
 
 import (
-	"github.com/samber/lo"
-	"github.com/stretchr/testify/assert"
+	"encoding/json"
+	"os"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/kcmvp/archunit/suite"
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestAllConstants(t *testing.T) {
-	tests := []struct {
-		pkg   string
-		files []string
-	}{
-		{
-			pkg: "github.com/kcmvp/archunit/internal/sample/repository",
-			files: []string{"archunit/internal/sample/repository/constants.go",
-				"archunit/internal/sample/repository/user_repository.go"},
-		},
-		{
-			pkg:   "github.com/kcmvp/archunit",
-			files: []string{"archunit/layer.go"},
-		},
+type ArtifactSuite struct {
+	suite.ArchSuite
+	arch *Artifact
+}
+
+func (suite *ArtifactSuite) SetupSuite() {
+	suite.arch = Arch()
+}
+
+func TestArtifactSuite(t *testing.T) {
+	suite.Run(t, new(ArtifactSuite))
+}
+
+func (suite *ArtifactSuite) TestAllConstants() {
+	type testCase struct {
+		Pkg   string   `json:"pkg"`
+		Files []string `json:"files"`
 	}
+	data, err := os.ReadFile("testdata/all_constants.json")
+	suite.NoError(err, "failed to read golden file for TestAllConstants")
+	var tests []testCase
+	err = json.Unmarshal(data, &tests)
+	suite.NoError(err, "failed to unmarshal golden file for TestAllConstants")
+
 	for _, test := range tests {
-		t.Run(test.pkg, func(t *testing.T) {
-			pkg := Arch().Package(test.pkg)
-			assert.NotNil(t, pkg)
-			assert.Equal(t, len(test.files), len(pkg.ConstantFiles()))
-			lo.EveryBy(test.files, func(f1 string) bool {
-				return lo.EveryBy(pkg.ConstantFiles(), func(f2 string) bool {
-					return strings.HasSuffix(f2, f1)
-				})
+		suite.Run(test.Pkg, func() {
+			pkg := suite.arch.Package(test.Pkg)
+			suite.NotNil(pkg, "package %s not found", test.Pkg)
+
+			actualFiles := lo.Map(pkg.ConstantFiles(), func(file string, _ int) string {
+				// make path relative for consistent comparison
+				return strings.TrimPrefix(file, suite.arch.RootDir()+"/")
 			})
-		})
-	}
-
-}
-
-func TestPackage_Functions(t *testing.T) {
-	tests := []struct {
-		pkg     string
-		funcs   []string
-		imports []string
-		exists  bool
-	}{
-		{
-			pkg: "github.com/kcmvp/archunit/internal",
-			funcs: []string{
-				"Arch",
-				"parse",
-			},
-			imports: []string{
-				"fmt",
-				"os/exec",
-				"golang.org/x/tools/go/packages",
-				"log",
-				"go/types",
-				"github.com/samber/lo",
-				"strings",
-				"sync",
-				"github.com/fatih/color",
-				"github.com/samber/lo/parallel",
-			},
-			exists: true,
-		},
-		{
-			pkg: "github.com/kcmvp/archunit",
-			funcs: []string{
-				"BeLowerCase",
-				"BeUpperCase",
-				"ConstantsShouldBeDefinedInOneFileByPackage",
-				"FunctionsOfType",
-				"HavePrefix",
-				"HaveSuffix",
-				"Layer",
-				"AppTypes",
-				"SourceNameShould",
-				"TypesEmbeddedWith",
-				"TypesImplement",
-				"TypesWith",
-				"Packages",
-				"AllPackages",
-				"ScopePattern",
-			},
-			imports: []string{
-				"fmt",
-				"github.com/kcmvp/archunit/internal",
-				"github.com/samber/lo",
-				"go/types",
-				"path/filepath",
-				"regexp",
-				"strings",
-				"github.com/samber/lo/parallel",
-				"sync",
-				"errors",
-			},
-			exists: true,
-		},
-		{
-			pkg:     "github.com/kcmvp/archunit/internal/sample",
-			funcs:   []string{},
-			imports: []string{},
-			exists:  false,
-		},
-		{
-			pkg: "github.com/kcmvp/archunit/internal/sample/service",
-			funcs: []string{
-				"AuditCall",
-			},
-			imports: []string{
-				"context",
-				"github.com/kcmvp/archunit/internal/sample/repository",
-				"github.com/kcmvp/archunit/internal/sample/model",
-			},
-			exists: true,
-		},
-		{
-			pkg:   "github.com/kcmvp/archunit/internal/sample/controller/module1",
-			funcs: []string{},
-			imports: []string{
-				"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
-				"github.com/kcmvp/archunit/internal/sample/repository",
-			},
-			exists: true,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.pkg, func(t *testing.T) {
-			pkg := Arch().Package(test.pkg)
-			assert.Equalf(t, lo.If(pkg == nil, false).Else(true), test.exists, test.pkg)
-			if pkg != nil {
-				funcs := lo.Map(pkg.Functions(), func(item Function, _ int) string {
-					return item.Name()
-				})
-				assert.ElementsMatch(t, test.funcs, funcs)
-				assert.ElementsMatch(t, test.imports, pkg.Imports())
-			}
-		})
-	}
-
-}
-
-func TestAllSource(t *testing.T) {
-	assert.Equal(t, 21, len(Arch().GoFiles()))
-}
-
-func TestMethodsOfType(t *testing.T) {
-	tests := []struct {
-		typName   string
-		exists    bool
-		functions []string
-	}{
-		{
-			typName: "internal/sample/service.UserService",
-			exists:  true,
-			functions: []string{
-				"GetUserById",
-				"GetUserByNameAndAddress",
-				"SearchUsersByFirstName",
-				"SearchUsersByLastName",
-			},
-		},
-		{
-			typName: "internal/sample/service.NameService",
-			exists:  true,
-			functions: []string{
-				"FirstNameI",
-				"LastNameI",
-			},
-		},
-		{
-			typName:   "internal/sample/service.NameService1",
-			exists:    false,
-			functions: []string{},
-		},
-		{
-			typName:   "internal/sample/service.Audit",
-			exists:    true,
-			functions: []string{},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.typName, func(t *testing.T) {
-			typ, ok := Arch().Type(test.typName)
-			assert.Equal(t, ok, test.exists)
-			if ok {
-				funcs := lo.Map(typ.Methods(), func(item Function, _ int) string {
-					return item.Name()
-				})
-				assert.ElementsMatch(t, funcs, test.functions)
-				if f, ok := lo.Find(typ.Methods(), func(item Function) bool {
-					return strings.HasSuffix(item.Name(), "service.UserService).SearchUsersByFirstName")
-				}); ok {
-					assert.Equal(t, f.Params(), []Param{
-						{"firstName", "string"},
-					})
-					assert.Equal(t, f.Returns(), []string{
-						"error", "[]github.com/kcmvp/archunit/internal/sample/model.User",
-					})
+			sort.Strings(actualFiles)
+			actual := testCase{Pkg: test.Pkg, Files: actualFiles}
+			ok := assert.ElementsMatch(suite, test.Files, actual.Files, "constant files for package %s should match", test.Pkg)
+			if !ok {
+				updatedJSON, err := json.MarshalIndent(actual, "", "  ")
+				if err == nil {
+					suite.TT().Logf("Golden file is out of date. Update with:\n%s", string(updatedJSON))
 				}
 			}
 		})
 	}
 }
 
-func TestArtifact_AllPackages(t *testing.T) {
-	expPkgs := []string{"github.com/kcmvp/archunit/internal",
-		"github.com/kcmvp/archunit",
-		"github.com/kcmvp/archunit/internal/sample/model",
-		"github.com/kcmvp/archunit/internal/sample/repository",
-		"github.com/kcmvp/archunit/internal/sample/service",
-		"github.com/kcmvp/archunit/internal/sample/vutil",
-		"github.com/kcmvp/archunit/internal/sample/views",
-		"github.com/kcmvp/archunit/internal/sample/controller",
-		"github.com/kcmvp/archunit/internal/sample/service/ext/v1",
-		"github.com/kcmvp/archunit/internal/sample/controller/module1",
-		"github.com/kcmvp/archunit/internal/sample/repository/ext",
-		"github.com/kcmvp/archunit/internal/sample/service/ext",
-		"github.com/kcmvp/archunit/internal/sample/service/ext/v2",
-		"github.com/kcmvp/archunit/internal/sample/service/thirdparty",
+func (suite *ArtifactSuite) TestPackage_Functions() {
+	type testCase struct {
+		Pkg     string   `json:"pkg"`
+		Funcs   []string `json:"funcs"`
+		Imports []string `json:"imports"`
+		Exists  bool     `json:"exists"`
 	}
-	keys := lo.Map(Arch().Packages(), func(item *Package, _ int) string {
-		return item.ID()
-	})
-	assert.ElementsMatch(t, expPkgs, keys)
-}
+	data, err := os.ReadFile("testdata/package_functions.json")
+	suite.NoError(err, "failed to read golden file for TestPackage_Functions")
+	var tests []testCase
+	err = json.Unmarshal(data, &tests)
+	suite.NoError(err, "failed to unmarshal golden file for TestPackage_Functions")
 
-func TestPkgTypes(t *testing.T) {
-	tests := []struct {
-		pkgName string
-		typs    []string
-		valid   bool
-		files   int
-	}{
-		{
-			pkgName: "github.com/kcmvp/archunit/internal",
-			typs: []string{
-				"github.com/kcmvp/archunit/internal.Artifact",
-				"github.com/kcmvp/archunit/internal.Function",
-				"github.com/kcmvp/archunit/internal.Package",
-				"github.com/kcmvp/archunit/internal.Param",
-				"github.com/kcmvp/archunit/internal.ParseMode",
-				"github.com/kcmvp/archunit/internal.Type",
-				"github.com/kcmvp/archunit/internal.Variable",
-			},
-			valid: true,
-			files: 1,
-		},
-		{
-			pkgName: "github.com/kcmvp/archunit/internal/sample/service",
-			typs: []string{
-				"github.com/kcmvp/archunit/internal/sample/service.Audit",
-				"github.com/kcmvp/archunit/internal/sample/service.FullNameImpl",
-				"github.com/kcmvp/archunit/internal/sample/service.NameService",
-				"github.com/kcmvp/archunit/internal/sample/service.NameServiceImpl",
-				"github.com/kcmvp/archunit/internal/sample/service.UserService",
-			},
-			valid: true,
-			files: 2,
-		},
-	}
 	for _, test := range tests {
-		t.Run(test.pkgName, func(t *testing.T) {
-			pkg := Arch().Package(test.pkgName)
-			assert.Equal(t, lo.If(pkg == nil, false).Else(true), test.valid)
-			assert.Equal(t, len(test.typs), len(pkg.Types()))
-			typs := lo.Map(pkg.Types(), func(item Type, _ int) string {
-				return item.Name()
-			})
-			assert.ElementsMatch(t, test.typs, typs)
-			assert.Equal(t, test.files, len(pkg.GoFiles()))
-			if typ, ok := lo.Find(pkg.Types(), func(typ Type) bool {
-				return strings.HasSuffix(typ.Name(), "sample/service.NameService")
-			}); ok {
-				assert.True(t, typ.Interface())
+		suite.Run(test.Pkg, func() {
+			pkg := suite.arch.Package(test.Pkg)
+
+			// Build the actual result from the parsed code.
+			actual := testCase{
+				Pkg:    test.Pkg,
+				Exists: pkg != nil,
+			}
+			if pkg != nil {
+				actual.Funcs = lo.Map(pkg.Functions(), func(item Function, _ int) string {
+					return item.FullName()
+				})
+				sort.Strings(actual.Funcs) // Sort for consistent output
+				actual.Imports = pkg.Imports()
+				sort.Strings(actual.Imports) // Sort for consistent output
+			} else {
+				// Ensure slices are not nil for consistent JSON marshalling.
+				actual.Funcs = []string{}
+				actual.Imports = []string{}
+			}
+
+			// Perform assertions and capture the results.
+			ok := suite.Equal(test.Exists, actual.Exists, "existence check for package %s failed", test.Pkg)
+			ok = suite.ElementsMatch(test.Funcs, actual.Funcs, "functions for package %s do not match", test.Pkg) && ok
+			ok = suite.ElementsMatch(test.Imports, actual.Imports, "imports for package %s do not match", test.Pkg) && ok
+
+			// If any assertion failed, it means the golden file is out of date.
+			// Log the new JSON snippet to make it easy for the developer to update it.
+			if !ok {
+				updatedJSON, err := json.MarshalIndent(actual, "", "  ")
+				if err == nil {
+					suite.TT().Logf("Golden file is out of date. Update with:\n%s", string(updatedJSON))
+				}
 			}
 		})
 	}
 }
 
-func TestArtifact(t *testing.T) {
-	assert.NotEmpty(t, Arch().RootDir())
-	assert.Equal(t, "github.com/kcmvp/archunit", Arch().Module())
-}
-
-func TestArchType(t *testing.T) {
-	size := len(Arch().Packages(false))
-	typ, ok := Arch().Type("github.com/samber/lo.Entry[K comparable, V any]")
-	assert.True(t, ok)
-	assert.Equal(t, "github.com/samber/lo.Entry[K comparable, V any]", typ.Name())
-	assert.True(t, len(Arch().Packages(false)) > size)
-}
-
-func TestArchFuncType(t *testing.T) {
-	tests := []struct {
-		name string
-		typ  string
-		exp  bool
-	}{
-		{
-			name: "valid",
-			typ:  "internal/sample/controller.CustomizeHandler",
-			exp:  true,
-		},
-		{
-			name: "invalid",
-			typ:  "internal/sample/controller.AppContext",
-			exp:  false,
-		},
+func (suite *ArtifactSuite) TestAllSource() {
+	expectedFileCount := 20
+	actualFiles := suite.arch.GoFiles()
+	ok := suite.Equal(expectedFileCount, len(actualFiles), "total number of source files should match expected count")
+	if !ok {
+		// If the assertion fails, log the actual files found to make it easy to update the test.
+		sort.Strings(actualFiles)
+		suite.TT().Logf("Found %d files, but expected %d. Actual files found:\n%s", len(actualFiles), expectedFileCount, strings.Join(actualFiles, "\n"))
 	}
+}
+
+func (suite *ArtifactSuite) TestMethodsOfType() {
+	type testCase struct {
+		TypName string             `json:"typName"`
+		Exists  bool               `json:"exists"`
+		Methods []string           `json:"methods,omitempty"`
+		Params  map[string][]Param `json:"params,omitempty"`
+		Returns map[string][]Param `json:"returns,omitempty"`
+	}
+	data, err := os.ReadFile("testdata/methods_of_type.json")
+	suite.NoError(err, "failed to read golden file for TestMethodsOfType")
+	var expectedCases []testCase
+	err = json.Unmarshal(data, &expectedCases)
+	suite.NoError(err, "failed to unmarshal golden file for TestMethodsOfType")
+
+	for _, test := range expectedCases {
+		suite.Run(test.TypName, func() {
+			typ, ok := suite.arch.Type(test.TypName)
+
+			actual := testCase{
+				TypName: test.TypName,
+				Exists:  ok,
+				Params:  map[string][]Param{},
+				Returns: map[string][]Param{},
+			}
+			if ok {
+				actual.Methods = lo.Map(typ.Methods(), func(item Function, _ int) string {
+					return item.FullName()
+				})
+			}
+
+			ok = suite.ElementsMatch(test.Methods, actual.Methods, "methods for type %s do not match", test.TypName) && ok
+			if !ok {
+				updatedJSON, err := json.MarshalIndent(actual, "", "  ")
+				if err == nil {
+					suite.TT().Logf("Golden file is out of date. Update with:\n%s", string(updatedJSON))
+				}
+			}
+		})
+	}
+}
+
+func (suite *ArtifactSuite) TestArtifact_AllPackages() {
+	type testCase struct {
+		Packages []string `json:"packages"`
+	}
+	data, err := os.ReadFile("testdata/all_packages.json")
+	suite.NoError(err, "failed to read golden file for TestArtifact_AllPackages")
+	var test testCase
+	err = json.Unmarshal(data, &test)
+	suite.NoError(err, "failed to unmarshal golden file for TestArtifact_AllPackages")
+
+	keys := lo.Map(suite.arch.Packages(true), func(item *Package, _ int) string {
+		return item.ID()
+	})
+	sort.Strings(keys)
+
+	ok := suite.ElementsMatch(test.Packages, keys, "application packages should match golden file")
+	if !ok {
+		actual := testCase{Packages: keys}
+		updatedJSON, err := json.MarshalIndent(actual, "", "  ")
+		if err == nil {
+			suite.TT().Logf("Golden file is out of date. Update with:\n%s", string(updatedJSON))
+		}
+	}
+}
+
+func (suite *ArtifactSuite) TestPkgTypes() {
+	type interfaceCheck struct {
+		Name        string `json:"name"`
+		IsInterface bool   `json:"isInterface"`
+	}
+	type testCase struct {
+		PkgName        string          `json:"pkgName"`
+		Typs           []string        `json:"typs"`
+		Valid          bool            `json:"valid"`
+		Files          int             `json:"files"`
+		InterfaceCheck *interfaceCheck `json:"interfaceCheck,omitempty"`
+	}
+	data, err := os.ReadFile("testdata/pkg_types.json")
+	suite.NoError(err, "failed to read golden file for TestPkgTypes")
+	var expectedCases []testCase
+	err = json.Unmarshal(data, &expectedCases)
+	suite.NoError(err, "failed to unmarshal golden file for TestPkgTypes")
+
+	for _, test := range expectedCases {
+		suite.Run(test.PkgName, func() {
+			pkg := suite.arch.Package(test.PkgName)
+
+			actual := testCase{
+				PkgName: test.PkgName,
+				Valid:   pkg != nil,
+			}
+
+			if pkg != nil {
+				actual.Typs = lo.Map(pkg.Types(), func(item Type, _ int) string {
+					return item.Name()
+				})
+				sort.Strings(actual.Typs)
+				actual.Files = len(pkg.GoFiles())
+
+				if test.InterfaceCheck != nil {
+					typ, ok := suite.arch.Type(test.InterfaceCheck.Name)
+					suite.True(ok, "type %s should be found", test.InterfaceCheck.Name)
+					actual.InterfaceCheck = &interfaceCheck{
+						Name:        test.InterfaceCheck.Name,
+						IsInterface: typ.Interface(),
+					}
+				}
+			}
+
+			ok := suite.Equal(test.Valid, actual.Valid, "validity check for package %s failed", test.PkgName)
+			ok = suite.ElementsMatch(test.Typs, actual.Typs, "types for package %s do not match", test.PkgName) && ok
+			ok = suite.Equal(test.Files, actual.Files, "file count for package %s does not match", test.PkgName) && ok
+			ok = suite.Equal(test.InterfaceCheck, actual.InterfaceCheck, "interface check for package %s failed", test.PkgName) && ok
+			if !ok {
+				updatedJSON, err := json.MarshalIndent(actual, "", "  ")
+				if err == nil {
+					suite.TT().Logf("Golden file is out of date. Update with:\n%s", string(updatedJSON))
+				}
+			}
+		})
+	}
+}
+
+func (suite *ArtifactSuite) TestArtifact() {
+	suite.NotEmpty(suite.arch.RootDir(), "project root directory should not be empty")
+	suite.Equal("github.com/kcmvp/archunit", suite.arch.Module(), "project module path should be correct")
+}
+
+func (suite *ArtifactSuite) TestArchType() {
+	//size := len(suite.arch.Packages(false))
+	typ, ok := suite.arch.Type("github.com/samber/lo.Entry")
+	suite.True(ok, "should be able to find type from external dependency")
+	suite.Equal("type github.com/samber/lo.Entry[K comparable, V any] struct{Key K; Value V}", typ.Name(), "type name should match")
+}
+
+func (suite *ArtifactSuite) TestArchFuncType() {
+	type testCase struct {
+		Name       string `json:"name"`
+		Typ        string `json:"typ"`
+		IsFuncType bool   `json:"isFuncType"`
+	}
+	data, err := os.ReadFile("testdata/arch_func_type.json")
+	suite.NoError(err, "failed to read golden file for TestArchFuncType")
+	var tests []testCase
+	err = json.Unmarshal(data, &tests)
+	suite.NoError(err, "failed to unmarshal golden file for TestArchFuncType")
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			typ, ok := Arch().Type(test.typ)
-			assert.True(t, ok)
-			assert.Equal(t, test.exp, typ.FuncType())
+		suite.Run(test.Name, func() {
+			typ, ok := suite.arch.Type(test.Typ)
+			suite.True(ok, "type %s should be found", test.Typ)
+			actual := testCase{
+				Name:       test.Name,
+				Typ:        test.Typ,
+				IsFuncType: typ.FuncType(),
+			}
+			ok = suite.Equal(test.IsFuncType, actual.IsFuncType, "function type check for %s failed", test.Name)
+			if !ok {
+				updatedJSON, err := json.MarshalIndent(actual, "", "  ")
+				if err == nil {
+					suite.TT().Logf("Golden file is out of date. Update with:\n%s", string(updatedJSON))
+				}
+			}
 		})
 	}
 }
