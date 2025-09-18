@@ -64,24 +64,68 @@ func TestArchitecture(t *testing.T) {
 
 ## Core Concepts
 
-`archunit` models your project's architecture using a set of core objects. You can select these objects and apply rules to them.
+`archunit` is built on a simple and powerful mental model. You define your architecture, select parts of it, and then apply rules to those selections. This can be broken down into three core concepts: **ArchObject**, **Selection**, and **Rule**.
 
-### Architectural Objects
+```mermaid
+graph LR
+    subgraph "Architecture Objects"
+        direction TB
+%%        subgraph architecture_objects ["Architecture Objects"]
+            C(Layer);
+            subgraph code_unit ["Code Unit"]
+                direction TB
+                C2(Package); 
+                C3(Type); 
+                C4(Function); 
+                C5(Variable); 
+                C6(File);
+            end
+            C --> C2(Package);
+            C --> C3(Type);
+            C --> C4(Function);
+            C --> C5(Variable);
+            C --> C6(File);
+%%        end
 
-*   **Layer**: A logical group of packages defined by a path pattern (e.g., `.../domain/...`). Layers are the highest level of architectural abstraction.
-*   **Package**: A standard Go package.
-*   **Type**: A Go type, such as a `struct` or `interface`.
-*   **Function**: A Go function or a method on a type.
-*   **Variable**: A package-level variable.
-*   **File**: A Go source file (`.go`) or test file (`_test.go`).
+        subgraph abstract_points ["Abstract Pointcuts"]
+            D1(Referable); 
+            D2(Exportable);
+        end
+        C --> D1; C2 --> D1; C3 --> D1;
+        C3 --> D2; C4 --> D2; C5 --> D2;
+%%        style D1 color:cyan
+%%        style D2 color:cyan
+    end
+```
 
-### Building Blocks for Rules
+### 1. ArchObject & Pointcuts: The Building Blocks
 
-To create architectural rules, you combine three main components:
+An **ArchObject** is the fundamental building block of your architecture. It represents a specific element within your codebase. `archunit` parses your code and models it into six concrete `ArchObject` types: **Layer**, **Package**, **Type**, **Function**, **Variable**, and **File**.
 
-*   **Selections**: Allow you to choose specific architectural objects to apply rules to. You start a rule by selecting objects, for example, `Packages(HaveNameSuffix("service"))` or `Layers("Domain").Types()`.
-*   **Matchers**: Are used to filter selections based on their properties, like their name or package path. `archunit` provides built-in matchers like `WithName`, `HaveNamePrefix`, and `HaveNameSuffix`, which can be combined using `AnyOf` and `Not`.
-*   **Rules**: Define the constraints you want to enforce on a selection. Rules are chained to selections, for example, `ShouldNotRefer(...)`, `ShouldOnlyBeReferredBy(...)`, or `NameShould(...)`.
+These objects are then categorized by **Pointcut Interfaces**, which define their architectural properties. For example:
+
+*   `Referable`: Implemented by `Layer`, `Package`, and `Type`. This interface is a pointcut for applying dependency rules.
+*   `Exportable`: Implemented by `Type`, `Function`, and `Variable`. This is a pointcut for applying visibility rules.
+
+This design allows for a powerful, type-safe rule system. A rule that checks dependencies can only be applied to objects that are `Referable`.
+
+### 2. Selection: Choosing What to Check
+
+A **Selection** is the process of choosing which `ArchObjects` to apply a rule to. You start by selecting a broad category (e.g., `Packages(...)`) and then filter it using composable **Matchers** (e.g., `WithName(...)`, `Not(...)`). This allows you to create precise, composite selections that target specific parts of your architecture.
+
+### 3. Rule: Defining the Constraints
+
+A **Rule** defines the specific constraint you want to enforce on your selection. After selecting your objects, you chain a rule method to define the relationship. Because the selection is typed by the pointcut interfaces, only valid rules will be available. For example, you can only apply `ShouldNotRefer(...)` to a selection of `Referable` objects.
+
+By combining Selections and Rules, you create a clear, declarative, and enforceable architectural test:
+
+```go
+// 1. Selection: All packages with the suffix "service"
+//    (This selection is 'Referable')
+// 2. Rule: Should not refer to any package in the "repository" layer.
+Packages(HaveNameSuffix[Package]("service")).
+    ShouldNotRefer(Layers("Repository"))
+```
 
 ## Pre-defined Rules
 
