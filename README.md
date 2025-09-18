@@ -70,32 +70,54 @@ func TestArchitecture(t *testing.T) {
 graph LR
     subgraph "Architecture Objects"
         direction TB
-%%        subgraph architecture_objects ["Architecture Objects"]
-            C(Layer);
+%%        subgraph "Architecture Objects"
+            A1(Layer);
             subgraph code_unit ["Code Unit"]
                 direction TB
-                C2(Package); 
-                C3(Type); 
-                C4(Function); 
-                C5(Variable); 
-                C6(File);
+                B1(Package);
+                B2(Type);
+                B3(Function);
+                B4(Variable);
+                B5(File);
             end
-            C --> C2(Package);
-            C --> C3(Type);
-            C --> C4(Function);
-            C --> C5(Variable);
-            C --> C6(File);
+            A1 --> B1;
+            A1 --> B2;
+            A1 --> B3;
+            A1 --> B4;
+            A1 --> B5;
 %%        end
 
         subgraph abstract_points ["Abstract Pointcuts"]
-            D1(Referable); 
+            D1(Referable);
             D2(Exportable);
         end
-        C --> D1; C2 --> D1; C3 --> D1;
-        C3 --> D2; C4 --> D2; C5 --> D2;
-%%        style D1 color:cyan
-%%        style D2 color:cyan
+
+        A1 --> D1;
+        B1 --> D1;
+        B2 --> D1;
+        B2 --> D2;
+        B3 --> D2;
+        B4 --> D2;
+        style code_unit stroke:cyan,stroke-dasharray: 5 5
+        style abstract_points stroke:cyan,stroke-dasharray: 5 5
+        style A1 stroke:cyan,stroke-dasharray: 5 5
     end
+
+    subgraph "How it Works"
+        direction LR
+        S1(Selection);
+        R1(Rule);
+        V1(Validate);
+        abstract_points -->|Match & Selection| S1;
+        code_unit -->|Match & Selection| S1;
+        A1 -->|Match & Selection| S1;
+        S1 --> R1;
+        R1 --> V1;
+    end
+
+    linkStyle 11 stroke:lightcoral,stroke-dasharray: 5 5
+    linkStyle 12 stroke:lightcoral,stroke-dasharray: 5 5
+    linkStyle 13 stroke:lightcoral,stroke-dasharray: 5 5
 ```
 
 ### 1. ArchObject & Pointcuts: The Building Blocks
