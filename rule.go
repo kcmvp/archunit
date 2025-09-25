@@ -82,10 +82,13 @@ func (rs *RuleSet) check(arch Architecture, objects ...ArchObject) error {
 		}
 	}
 
-	return lo.Ternary(len(allViolations) > 0, &ViolationError{
-		category:   CategoryBestPractice,
-		Violations: allViolations,
-	}, nil)
+	if len(allViolations) > 0 {
+		return &ViolationError{
+			category:   CategoryBestPractice,
+			Violations: allViolations,
+		}
+	}
+	return nil
 }
 
 // ChainRules combines multiple rules into a single RuleSet.

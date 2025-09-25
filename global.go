@@ -86,10 +86,10 @@ func ConstantsShouldBeConsolidated() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryPackage,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryPackage, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -121,10 +121,10 @@ func VariablesShouldBeUsedInDefiningFile() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryVariable,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryVariable, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -188,10 +188,10 @@ func ConfigurationFilesShouldBeInFolder(folderName string) Rule {
 			return err
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryFolder,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryFolder, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -251,10 +251,10 @@ func NoPublicReAssignableVariables() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryVariable,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryVariable, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -291,10 +291,10 @@ func NoUnusedPublicDeclarations() Rule {
 			return fmt.Sprintf("public declaration <%s> is not referred to from outside its package and should be private", obj)
 		})
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryUnusedPublic,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryUnusedPublic, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -333,10 +333,10 @@ func AtMostOneInitFuncPerPackage() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryPackage,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryPackage, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -385,10 +385,10 @@ func ErrorShouldBeLastReturn() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryFunction,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryFunction, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -438,10 +438,10 @@ func TestDataShouldBeInTestDataFolder() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryFolder,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryFolder, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -499,10 +499,10 @@ func PackagesShouldNotExceedDepth(max int) Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryPackage,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryPackage, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -553,10 +553,10 @@ func ContextShouldBeFirstParam() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryFunction,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryFunction, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -596,10 +596,10 @@ func ContextKeysShouldBePrivateType() Rule {
 			violations = append(violations, violation)
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryContext,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryContext, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -637,10 +637,10 @@ func ConstantsAndVariablesShouldBeGrouped() Rule {
 			violations = append(violations, violation)
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryPackage,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryPackage, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -673,10 +673,10 @@ func PackageNamedAsFolder() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryPackage,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryPackage, Violations: violations}
+		}
+		return nil
 	})
 }
 
@@ -728,9 +728,9 @@ func VariablesAndConstantsShouldUseMixedCaps() Rule {
 			}
 		}
 
-		return lo.Ternary(len(violations) > 0, &ViolationError{
-			category:   CategoryNaming,
-			Violations: violations,
-		}, nil)
+		if len(violations) > 0 {
+			return &ViolationError{category: CategoryNaming, Violations: violations}
+		}
+		return nil
 	})
 }
